@@ -80,6 +80,8 @@ const SUITES = [
 const CATEGORIES = [
   { value: 'development', label: 'Development' },
   { value: 'product', label: 'Product' },
+  { value: 'localization', label: 'Localization' },
+  { value: 'payments', label: 'Payments' },
   { value: 'all', label: 'All suites' },
 ];
 
@@ -105,7 +107,9 @@ function html() {
         </label>`
   ).join('\n');
 
-  const categoryOptions = CATEGORIES.map((c) => `<option value="${c.value}">${c.label}</option>`).join('\n');
+  const categoryItems = CATEGORIES.map(
+    (c) => `<li class="dropdown__item" data-value="${c.value}" role="option">${c.label}</li>`
+  ).join('\n');
 
   return `<!doctype html>
 <html lang="en">
@@ -135,6 +139,18 @@ function html() {
     --red: #f75a6a;
     --red-bg: rgba(247, 90, 106, .14);
     --radius: 12px;
+    --shadow: 0 12px 32px rgba(0, 0, 0, .35);
+  }
+  :root[data-theme="light"] {
+    --bg: #f4f4fa;
+    --bg-2: #ffffff;
+    --card: #ffffff;
+    --border: rgba(20, 18, 40, .1);
+    --text: #14121f;
+    --muted: #6b7080;
+    --green-bg: rgba(34, 197, 94, .12);
+    --red-bg: rgba(247, 90, 106, .12);
+    --shadow: 0 12px 28px rgba(20, 18, 40, .12);
   }
   * { box-sizing: border-box; }
   body {
@@ -143,10 +159,21 @@ function html() {
     color: var(--text);
     margin: 0;
     padding: 2.5rem 1.25rem 4rem;
+    transition: background .2s ease, color .2s ease;
   }
   .page { max-width: 640px; margin: 0 auto; }
-  .brand { display: flex; align-items: center; margin-bottom: 1.5rem; }
+  .header-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; }
+  .brand { display: flex; align-items: center; }
   .brand__logo { height: 30px; width: auto; display: block; }
+  :root[data-theme="light"] .brand__logo { filter: invert(9%) sepia(20%) saturate(1200%) hue-rotate(220deg); }
+  .theme-toggle {
+    width: 36px; height: 36px; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--card); border: 1px solid var(--border); color: var(--text);
+    border-radius: 10px; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .theme-toggle:hover { border-color: var(--purple); }
+  .theme-toggle svg { display: block; }
   h1 {
     font-size: 1.5rem;
     margin: 0 0 .4rem;
@@ -172,20 +199,63 @@ function html() {
     margin-bottom: .9rem;
   }
   .card-header h2 { margin: 0; }
-  select#category-select {
-    appearance: none;
-    -webkit-appearance: none;
-    background: var(--bg-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa1b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right .7rem center;
+  .dropdown { position: relative; }
+  .dropdown__trigger {
+    display: flex;
+    align-items: center;
+    gap: .55rem;
+    background: var(--bg-2);
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: 8px;
-    padding: .4rem 1.8rem .4rem .7rem;
+    padding: .45rem .8rem;
     font-family: inherit;
     font-size: .85rem;
     font-weight: 500;
     cursor: pointer;
+    transition: border-color .15s, background .15s;
   }
-  select#category-select:focus { outline: none; border-color: var(--purple); }
+  .dropdown__trigger:hover, .dropdown__trigger[aria-expanded="true"] { border-color: var(--purple); }
+  .dropdown__chevron { flex: none; color: var(--muted); transition: transform .2s ease; }
+  .dropdown__trigger[aria-expanded="true"] .dropdown__chevron { transform: rotate(180deg); }
+  .dropdown__menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 8px);
+    min-width: 190px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: .35rem;
+    margin: 0;
+    list-style: none;
+    box-shadow: var(--shadow);
+    opacity: 0;
+    transform: translateY(-6px) scale(.98);
+    pointer-events: none;
+    transition: opacity .16s ease, transform .16s ease;
+    z-index: 20;
+  }
+  .dropdown__menu--open { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+  .dropdown__item {
+    padding: .5rem .65rem;
+    border-radius: 7px;
+    font-size: .85rem;
+    font-weight: 500;
+    color: var(--text);
+    cursor: pointer;
+    transition: background .12s ease;
+  }
+  .dropdown__item:hover { background: rgba(139, 92, 246, .12); }
+  .dropdown__item--active { background: rgba(139, 92, 246, .18); color: var(--purple); }
+  .empty-category {
+    color: var(--muted);
+    font-size: .9rem;
+    padding: 1.25rem .5rem;
+    text-align: center;
+    border: 1.5px dashed var(--border);
+    border-radius: 10px;
+  }
   .suite-card {
     display: block;
     border: 1.5px solid var(--border);
@@ -249,7 +319,13 @@ function html() {
 </head>
 <body>
 <div class="page">
-  <div class="brand"><img class="brand__logo" src="/assets/aloplay-logo-white.svg" alt="Aloplay"></div>
+  <div class="header-row">
+    <div class="brand"><img class="brand__logo" src="/assets/aloplay-logo-white.svg" alt="Aloplay"></div>
+    <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme">
+      <svg id="theme-icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z"/></svg>
+      <svg id="theme-icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+    </button>
+  </div>
   <h1>Aloplay Automation QA Test Suites</h1>
   <p class="hint">Dear Aloplayers, pick a suite and click Run. This triggers the selected suite on GitHub
   Actions — no GitHub account needed — and the results show up right here once it finishes (usually 1-3
@@ -258,11 +334,18 @@ function html() {
   <div class="card">
     <div class="card-header">
       <h2>Suite</h2>
-      <select id="category-select">
-        ${categoryOptions}
-      </select>
+      <div class="dropdown" id="category-dropdown">
+        <button type="button" class="dropdown__trigger" id="category-trigger" aria-haspopup="listbox" aria-expanded="false">
+          <span id="category-trigger-label">Development</span>
+          <svg class="dropdown__chevron" width="10" height="6" viewBox="0 0 10 6" fill="none"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+        <ul class="dropdown__menu" id="category-menu" role="listbox">
+          ${categoryItems}
+        </ul>
+      </div>
     </div>
     ${cards}
+    <p class="empty-category" id="empty-category-msg" hidden>No suites in this category yet.</p>
     <div style="margin-top: 1rem;">
       <button id="run-button">Run tests</button>
       <div class="run-status" id="run-status"></div>
@@ -288,15 +371,57 @@ function suiteRadio() {
   return document.querySelector('input[name="suite"]:checked').value;
 }
 
-const categorySelect = document.getElementById('category-select');
+// --- Category dropdown (custom, animated — replaces a native <select>) ---
+const categoryDropdown = document.getElementById('category-dropdown');
+const categoryTrigger = document.getElementById('category-trigger');
+const categoryTriggerLabel = document.getElementById('category-trigger-label');
+const categoryMenu = document.getElementById('category-menu');
+const categoryItems = Array.from(categoryMenu.querySelectorAll('.dropdown__item'));
+const emptyCategoryMsg = document.getElementById('empty-category-msg');
+
+let currentCategory = 'development';
+let isRunInProgress = false;
+
+function openCategoryMenu() {
+  categoryMenu.classList.add('dropdown__menu--open');
+  categoryTrigger.setAttribute('aria-expanded', 'true');
+}
+function closeCategoryMenu() {
+  categoryMenu.classList.remove('dropdown__menu--open');
+  categoryTrigger.setAttribute('aria-expanded', 'false');
+}
+
+categoryTrigger.addEventListener('click', (e) => {
+  e.stopPropagation();
+  categoryMenu.classList.contains('dropdown__menu--open') ? closeCategoryMenu() : openCategoryMenu();
+});
+categoryItems.forEach((item) => {
+  item.addEventListener('click', () => {
+    setCategory(item.dataset.value);
+    closeCategoryMenu();
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!categoryDropdown.contains(e.target)) closeCategoryMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeCategoryMenu();
+});
+
+function setCategory(value) {
+  currentCategory = value;
+  const match = categoryItems.find((i) => i.dataset.value === value);
+  categoryTriggerLabel.textContent = match ? match.textContent : value;
+  categoryItems.forEach((i) => i.classList.toggle('dropdown__item--active', i.dataset.value === value));
+  applyCategoryFilter();
+}
 
 function applyCategoryFilter() {
-  const category = categorySelect.value;
   let firstVisibleInput = null;
   let checkedIsVisible = false;
 
   document.querySelectorAll('.suite-card').forEach((card) => {
-    const matches = card.dataset.category === category;
+    const matches = card.dataset.category === currentCategory;
     card.hidden = !matches;
     if (!matches) return;
     const input = card.querySelector('input');
@@ -305,13 +430,36 @@ function applyCategoryFilter() {
   });
 
   if (!checkedIsVisible && firstVisibleInput) firstVisibleInput.checked = true;
+
+  const isEmpty = !firstVisibleInput;
+  emptyCategoryMsg.hidden = !isEmpty;
+  if (!isRunInProgress) runButton.disabled = isEmpty;
 }
 
-categorySelect.addEventListener('change', applyCategoryFilter);
-applyCategoryFilter();
+setCategory(currentCategory);
+
+// --- Light/dark theme toggle ---
+const themeToggle = document.getElementById('theme-toggle');
+const themeIconMoon = document.getElementById('theme-icon-moon');
+const themeIconSun = document.getElementById('theme-icon-sun');
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  themeIconMoon.style.display = theme === 'light' ? 'none' : 'block';
+  themeIconSun.style.display = theme === 'light' ? 'block' : 'none';
+}
+
+applyTheme(localStorage.getItem('aloplay-qa-theme') || 'dark');
+
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  localStorage.setItem('aloplay-qa-theme', next);
+});
 
 runButton.addEventListener('click', async () => {
   runButton.disabled = true;
+  isRunInProgress = true;
   reportWaitAttempts = 0;
   runStatusEl.innerHTML = '<div class="spinner"></div><span class="run-status__text">Starting run on GitHub Actions...</span>';
   resultRowEl.innerHTML = '';
@@ -327,6 +475,7 @@ runButton.addEventListener('click', async () => {
     const body = await res.json().catch(() => ({}));
     runStatusEl.innerHTML = '<span class="run-status__text run-status__text--failure">Could not start: ' +
       (body.error || res.statusText) + '</span>';
+    isRunInProgress = false;
     runButton.disabled = false;
     return;
   }
@@ -367,6 +516,7 @@ async function poll() {
   const isSuccess = data.conclusion === 'success';
   runStatusEl.innerHTML = '<span class="run-status__text run-status__text--' + (isSuccess ? 'success' : 'failure') + '">' +
     (isSuccess ? 'All good' : 'Finished with failures') + '</span>';
+  isRunInProgress = false;
   runButton.disabled = false;
   renderPills(data.statistic);
   loadHistory();
