@@ -89,6 +89,27 @@ npm run report:open       # allure open allure-report
 `allure-results/` как артефакт и рендерить `allure generate` в отдельном
 шаге (нужна Java для `allure-commandline`).
 
+## Запуск через GitHub Actions (кнопка для коллег)
+
+Репозиторий: https://github.com/Ivansako/gcplaying-registration-autotests
+
+1. Откройте вкладку **Actions** → workflow **"Run autotests"**.
+2. Нажмите **Run workflow**, выберите:
+   - `spec` — какой набор тестов гонять (`registration` / `game-providers` / `all`);
+   - `include_form_submitting` — включать ли `@positive`/`@duplicate` (создают
+     реальный аккаунт на проде — по умолчанию выключено);
+   - `base_url` — опционально, другой адрес (например, стейджинг).
+3. После завершения прогона откройте сам run → внизу секция **Artifacts** →
+   скачайте `allure-report`, распакуйте и откройте `index.html` локально.
+
+⚠️ GitHub Pages для приватных репозиториев на бесплатном тарифе недоступен,
+поэтому отчёт публикуется как скачиваемый артефакт, а не постоянная ссылка.
+При переходе на GitHub Pro/Team/Enterprise можно переключить публикацию на
+Pages для отчёта по одному стабильному URL для всей команды.
+
+Чтобы у коллег был доступ к репозиторию — добавьте их в
+**Settings → Collaborators and teams**.
+
 ## Структура проекта
 
 ```
