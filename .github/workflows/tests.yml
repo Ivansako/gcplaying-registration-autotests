@@ -9,6 +9,7 @@ on:
         default: registration
         options:
           - registration
+          - brand-gcplaying
           - game-providers
           - all
       include_form_submitting:
@@ -41,6 +42,7 @@ jobs:
         run: |
           case "${{ inputs.spec }}" in
             registration) echo "path=tests/registration.spec.ts" >> "$GITHUB_OUTPUT" ;;
+            brand-gcplaying) echo "path=tests/brand-gcplaying.spec.ts" >> "$GITHUB_OUTPUT" ;;
             game-providers) echo "path=tests/game-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
           esac
@@ -50,7 +52,12 @@ jobs:
           BASE_URL: ${{ inputs.base_url }}
         run: |
           GREP_ARGS=""
-          if [ "${{ inputs.include_form_submitting }}" != "true" ]; then
+          # The brand-gcplaying suite has no submit-toggle concept: its
+          # positive test (register + log back in) always creates a real
+          # account, that's the point of the suite, so the filter below
+          # (which exists to keep the plain registration suite's public
+          # button from creating accounts by default) doesn't apply to it.
+          if [ "${{ inputs.spec }}" != "brand-gcplaying" ] && [ "${{ inputs.include_form_submitting }}" != "true" ]; then
             GREP_ARGS="--grep-invert @positive|@duplicate"
           fi
           npx playwright test ${{ steps.spec.outputs.path }} --project=chromium --workers=1 $GREP_ARGS

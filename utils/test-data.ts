@@ -40,12 +40,39 @@ export function generateValidRegistrationData(overrides: Partial<RegistrationDat
 }
 
 /**
+ * Email pattern requested for the full brand test: `wiztest` followed
+ * by one random lowercase letter and one random digit, e.g.
+ * `wiztestq7@gmail.com`. Kept separate from `generateValidRegistrationData`'s
+ * mailinator addresses (used by the plain registration suite) so the
+ * two suites don't collide on email uniqueness assumptions.
+ */
+export function generateWizTestEmail(): string {
+  const letter = faker.string.alpha({ length: 1, casing: 'lower' });
+  const digit = faker.string.numeric(1);
+  return `wiztest${letter}${digit}@gmail.com`;
+}
+
+export function generateBrandTestRegistrationData(overrides: Partial<RegistrationData> = {}): RegistrationData {
+  return {
+    email: generateWizTestEmail(),
+    password: generateValidPassword(),
+    phone: generateValidPhone(),
+    ...overrides,
+  };
+}
+
+/**
  * Phone number without the country code (+971 for United Arab
  * Emirates is set by default in the form) — 9 digits starting with
- * 5, matching UAE mobile numbers.
+ * one of the valid UAE mobile operator prefixes (50/52/54/55/56/58).
+ * A fully random second digit (e.g. "59...") is rejected by the
+ * form's client-side validation with "Phone number is incorrect",
+ * which silently keeps the submit button disabled.
  */
 export function generateValidPhone(): string {
-  return `5${faker.string.numeric(8)}`;
+  const validSecondDigits = ['0', '2', '4', '5', '6', '8'];
+  const secondDigit = faker.helpers.arrayElement(validSecondDigits);
+  return `5${secondDigit}${faker.string.numeric(7)}`;
 }
 
 export function invalidEmailSamples(): string[] {

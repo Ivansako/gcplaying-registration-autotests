@@ -51,6 +51,11 @@ const history = []; // most recent first, capped at MAX_HISTORY
 
 const SUITES = [
   { value: 'registration', label: 'Registration', sub: 'gcplaying0175.com — live browser, real form checks' },
+  {
+    value: 'brand-gcplaying',
+    label: 'Brand test — gcplaying0175.com',
+    sub: 'Desktop + mobile, registration + login, screenshot on every check — creates a real account every run',
+  },
   { value: 'game-providers', label: 'Game providers', sub: 'ferraplay.com — findings ledger, no live browser' },
   { value: 'all', label: 'All suites', sub: 'Everything above' },
 ];

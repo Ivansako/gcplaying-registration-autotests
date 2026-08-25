@@ -1,5 +1,6 @@
 import { expect, Locator, Page } from '@playwright/test';
-import { step } from 'allure-js-commons';
+import { attachment, step } from 'allure-js-commons';
+import { ContentType } from 'allure-js-commons';
 import { RegistrationData } from '../utils/test-data';
 
 /**
@@ -59,6 +60,21 @@ export class RegistrationPage {
   readonly googleSignUpButton: Locator;
   readonly termsLink: Locator;
 
+  // Login tab — confirmed live 2026-08-25. Same modal, a separate
+  // `LoginForm_form` container that only renders while the Log In tab
+  // is active, so scoping to it avoids any ambiguity with the signup
+  // form's identically-named `email`/`password` inputs.
+  readonly loginForm: Locator;
+  readonly loginEmailInput: Locator;
+  readonly loginPasswordInput: Locator;
+  readonly loginSubmitButton: Locator;
+  readonly loginErrorText: Locator;
+
+  // Third-party promo popup (e.g. "Golden League is live!") — renders in
+  // an injected `iframe.__btgPromoHolder` right after registration/login
+  // and covers the header, blocking clicks on Log out / Deposit / etc.
+  readonly promoPopupCloseButton: Locator;
+
   constructor(page: Page) {
     this.page = page;
 
@@ -84,6 +100,35 @@ export class RegistrationPage {
     this.submitButton = this.modal.locator('[class*="SignUpForm_form"] button[class*="WizButton_primary-contained"]');
     this.googleSignUpButton = this.modal.getByRole('button', { name: /sign up with google/i });
     this.termsLink = this.modal.getByRole('link', { name: /terms and conditions/i });
+
+    this.loginForm = this.modal.locator('form[class*="LoginForm_form"]');
+    this.loginEmailInput = this.loginForm.locator('input[name="email"]');
+    this.loginPasswordInput = this.loginForm.locator('input[name="password"]');
+    this.loginSubmitButton = this.loginForm.locator('button[type="submit"]');
+    this.loginErrorText = this.modal.getByTestId('account-error-text');
+
+    this.promoPopupCloseButton = page.frameLocator('iframe.__btgPromoHolder').locator('[data-ao-hide-popup="true"]');
+  }
+
+  /**
+   * Removes the third-party promo popup's iframe if it's currently
+   * shown; a no-op otherwise. Must be called before interacting with
+   * the header (Log out, Deposit, etc.) right after a registration or
+   * login, since the popup otherwise intercepts those clicks — and can
+   * resurface (a new iframe instance) even after being closed once.
+   * Removed directly via the DOM rather than clicking its in-iframe
+   * close button, which proved unreliable (the click didn't reliably
+   * dismiss the popup, possibly due to a forced minimum display time).
+   */
+  async dismissPromoPopupIfPresent(): Promise<void> {
+    const removedCount = await this.page.evaluate(() => {
+      const frames = document.querySelectorAll('iframe.__btgPromoHolder');
+      frames.forEach((frame) => frame.remove());
+      return frames.length;
+    });
+    if (removedCount > 0) {
+      await step('Dismiss the promo popup, if shown', async () => {});
+    }
   }
 
   async open(): Promise<void> {
@@ -102,13 +147,32 @@ export class RegistrationPage {
    * user's storageState).
    */
   async ensureLoggedOut(): Promise<void> {
+    await this.dismissPromoPopupIfPresent();
     const logoutLink = this.page.getByText('Log out', { exact: true });
     if (await logoutLink.isVisible().catch(() => false)) {
       await step('Log out the active session before the registration test', async () => {
-        await logoutLink.click();
-        await this.page.getByRole('button', { name: 'Log Out', exact: true }).click();
+        await this.clickDespitePromoPopup(logoutLink);
+        await this.clickDespitePromoPopup(this.page.getByRole('button', { name: 'Log Out', exact: true }));
         await expect(this.registerButton).toBeVisible();
       });
+    }
+  }
+
+  /**
+   * Clicks a locator, retrying if the promo popup's iframe reappears
+   * mid-flow and intercepts the click — it can resurface a few seconds
+   * after being dismissed (a new iframe instance, so a one-time check
+   * up front isn't enough).
+   */
+  private async clickDespitePromoPopup(locator: Locator): Promise<void> {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      await this.dismissPromoPopupIfPresent();
+      try {
+        await locator.click({ timeout: 3_000 });
+        return;
+      } catch (error) {
+        if (attempt === 5) throw error;
+      }
     }
   }
 
@@ -223,8 +287,61 @@ export class RegistrationPage {
     await step('Verify successful registration', async () => {
       await expect(this.modal).toBeHidden({ timeout: 15_000 });
       await expect(
-        this.page.getByText('Log out', { exact: true }).or(this.page.getByRole('button', { name: 'Deposit' }))
+        this.page.getByText('Log out', { exact: true }).or(this.page.getByRole('button', { name: 'Deposit' })).first()
       ).toBeVisible({ timeout: 15_000 });
+      await this.dismissPromoPopupIfPresent();
+    });
+  }
+
+  /**
+   * Attaches a full-page screenshot to the Allure report at the exact
+   * point it's called — used after each meaningful check in the brand
+   * test so every step has visual evidence, on both desktop and
+   * mobile viewports.
+   */
+  async attachScreenshot(name: string): Promise<void> {
+    const buffer = await this.page.screenshot({ fullPage: true });
+    await attachment(name, buffer, ContentType.PNG);
+  }
+
+  async openLoginForm(): Promise<void> {
+    await step('Open the login form', async () => {
+      await this.registerButton.click();
+      await expect(this.modal).toBeVisible();
+      await this.logInTab.click();
+      await expect(this.loginForm).toBeVisible();
+    });
+  }
+
+  async fillLoginForm(email: string, password: string): Promise<void> {
+    await step(`Fill in login form for: ${email}`, async () => {
+      await this.loginEmailInput.fill(email);
+      await this.loginPasswordInput.fill(password);
+    });
+  }
+
+  async submitLogin(): Promise<void> {
+    await step('Submit the login form', async () => {
+      await this.loginSubmitButton.click();
+    });
+  }
+
+  async loginWith(email: string, password: string): Promise<void> {
+    await this.openLoginForm();
+    await this.fillLoginForm(email, password);
+    await this.submitLogin();
+  }
+
+  /**
+   * The login form shows a single generic error for both an unknown
+   * email and a wrong password — "Invalid Login or Password" — it
+   * does not distinguish which field was wrong, confirmed live
+   * 2026-08-25.
+   */
+  async expectLoginError(): Promise<void> {
+    await step('Verify the "Invalid Login or Password" error is shown', async () => {
+      await expect(this.loginErrorText).toBeVisible();
+      await expect(this.loginErrorText).toHaveText('Invalid Login or Password');
     });
   }
 }
