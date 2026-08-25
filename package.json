@@ -1,0 +1,24 @@
+{
+  "name": "gcplaying-registration-autotests",
+  "version": "1.0.0",
+  "description": "Автотесты регистрации для https://gcplaying0175.com/ на Playwright + TypeScript с отчётами Allure",
+  "private": true,
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "report:generate": "allure generate allure-results --clean -o allure-report",
+    "report:open": "allure open allure-report",
+    "report": "npm run report:generate && npm run report:open",
+    "ui": "node scripts/test-runner-server.js"
+  },
+  "devDependencies": {
+    "@faker-js/faker": "^8.4.1",
+    "@playwright/test": "^1.47.0",
+    "allure-commandline": "^2.30.0",
+    "allure-js-commons": "^3.0.0",
+    "allure-playwright": "^3.0.0",
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}
