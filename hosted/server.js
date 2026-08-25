@@ -37,6 +37,7 @@ if (!TOKEN || !OWNER || !REPO) {
 }
 
 const REPORT_DIR = path.join(os.tmpdir(), 'allure-report-cache');
+const ASSETS_DIR = path.join(__dirname, 'assets');
 const MAX_HISTORY = 10;
 
 const GH_API = 'https://api.github.com';
@@ -49,15 +50,37 @@ const ghHeaders = {
 let currentRun = null; // { runId, suite, status, conclusion, htmlUrl, reportReady, statistic, dispatchedAt }
 const history = []; // most recent first, capped at MAX_HISTORY
 
+// `category` groups suites in the page's Category dropdown: tests that
+// exercise the site's actual product behavior (game providers) are
+// "Product"; tests that exercise the codebase's own auth/registration
+// flows are "Development". "all" gets its own catch-all category rather
+// than living in either, since it runs both.
 const SUITES = [
-  { value: 'registration', label: 'Registration', sub: 'gcplaying0175.com — live browser, real form checks' },
+  {
+    value: 'registration',
+    label: 'Registration',
+    sub: 'gcplaying0175.com — live browser, real form checks',
+    category: 'development',
+  },
   {
     value: 'brand-gcplaying',
     label: 'Brand test — gcplaying0175.com',
     sub: 'Desktop + mobile, registration + login, screenshot on every check — creates a real account every run',
+    category: 'development',
   },
-  { value: 'game-providers', label: 'Game providers', sub: 'ferraplay.com — findings ledger, no live browser' },
-  { value: 'all', label: 'All suites', sub: 'Everything above' },
+  {
+    value: 'game-providers',
+    label: 'Game providers',
+    sub: 'ferraplay.com — findings ledger, no live browser',
+    category: 'product',
+  },
+  { value: 'all', label: 'All suites', sub: 'Everything above', category: 'all' },
+];
+
+const CATEGORIES = [
+  { value: 'development', label: 'Development' },
+  { value: 'product', label: 'Product' },
+  { value: 'all', label: 'All suites' },
 ];
 
 function suiteLabel(value) {
@@ -75,44 +98,63 @@ function formatDuration(ms) {
 function html() {
   const cards = SUITES.map(
     (s) => `
-        <label class="suite-card">
+        <label class="suite-card" data-category="${s.category}">
           <input type="radio" name="suite" value="${s.value}" ${s.value === 'registration' ? 'checked' : ''}>
           <span class="suite-card__title">${s.label}</span>
           <span class="suite-card__sub">${s.sub}</span>
         </label>`
   ).join('\n');
 
+  const categoryOptions = CATEGORIES.map((c) => `<option value="${c.value}">${c.label}</option>`).join('\n');
+
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Autotests</title>
+<title>Aloplay Automation QA Test Suites</title>
+<link rel="icon" type="image/png" href="/assets/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f6f7fb;
-    --card: #ffffff;
-    --border: #e3e6ee;
-    --text: #1a1d29;
-    --muted: #6b7080;
-    --accent: #4f5cf0;
-    --accent-dark: #3c47c9;
-    --green: #1a9e5c;
-    --green-bg: #e7f8ef;
-    --red: #d13438;
-    --red-bg: #fdeceb;
+    --bg: #07080f;
+    --bg-2: #0b0d18;
+    --card: #12141f;
+    --border: rgba(255, 255, 255, .08);
+    --text: #ffffff;
+    --muted: #9aa1b8;
+    --purple: #8b5cf6;
+    --pink: #ec1e79;
+    --cyan: #22d3ee;
+    --accent: var(--purple);
+    --grad: linear-gradient(90deg, #8b5cf6, #ec1e79);
+    --green: #22c55e;
+    --green-bg: rgba(34, 197, 94, .14);
+    --red: #f75a6a;
+    --red-bg: rgba(247, 90, 106, .14);
     --radius: 12px;
   }
   * { box-sizing: border-box; }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    background: var(--bg);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    background: radial-gradient(circle at top, var(--bg-2), var(--bg) 55%);
     color: var(--text);
     margin: 0;
     padding: 2.5rem 1.25rem 4rem;
   }
   .page { max-width: 640px; margin: 0 auto; }
-  h1 { font-size: 1.5rem; margin: 0 0 .3rem; }
+  .brand { display: flex; align-items: center; margin-bottom: 1.5rem; }
+  .brand__logo { height: 30px; width: auto; display: block; }
+  h1 {
+    font-size: 1.5rem;
+    margin: 0 0 .4rem;
+    background: var(--grad);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
   p.hint { color: var(--muted); margin: 0 0 1.75rem; line-height: 1.5; }
   .card {
     background: var(--card);
@@ -122,6 +164,28 @@ function html() {
     margin-bottom: 1.25rem;
   }
   .card h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 .9rem; }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: .9rem;
+  }
+  .card-header h2 { margin: 0; }
+  select#category-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--bg-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa1b8' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right .7rem center;
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: .4rem 1.8rem .4rem .7rem;
+    font-family: inherit;
+    font-size: .85rem;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  select#category-select:focus { outline: none; border-color: var(--purple); }
   .suite-card {
     display: block;
     border: 1.5px solid var(--border);
@@ -129,11 +193,12 @@ function html() {
     padding: .75rem .9rem;
     margin-bottom: .6rem;
     cursor: pointer;
-    transition: border-color .15s;
+    transition: border-color .15s, background .15s;
   }
   .suite-card:last-child { margin-bottom: 0; }
-  .suite-card:has(input:checked) { border-color: var(--accent); background: #f5f6ff; }
-  .suite-card input { margin-right: .5rem; accent-color: var(--accent); }
+  .suite-card:has(input:checked) { border-color: var(--purple); background: rgba(139, 92, 246, .1); }
+  .suite-card[hidden] { display: none; }
+  .suite-card input { margin-right: .5rem; accent-color: var(--purple); }
   .suite-card__title { font-weight: 600; }
   .suite-card__sub { display: block; color: var(--muted); font-size: .85rem; margin-left: 1.4rem; }
   button#run-button {
@@ -142,18 +207,18 @@ function html() {
     font-size: 1rem;
     font-weight: 600;
     color: #fff;
-    background: var(--accent);
+    background: var(--grad);
     border: none;
     border-radius: 10px;
     cursor: pointer;
-    transition: background .15s;
+    transition: filter .15s;
   }
-  button#run-button:hover:not(:disabled) { background: var(--accent-dark); }
+  button#run-button:hover:not(:disabled) { filter: brightness(1.12); }
   button#run-button:disabled { cursor: not-allowed; opacity: .55; }
   .run-status { display: flex; align-items: center; gap: .6rem; margin-top: 1rem; min-height: 1.4rem; }
   .spinner {
     width: 16px; height: 16px; border-radius: 50%;
-    border: 2.5px solid #d8dbf5; border-top-color: var(--accent);
+    border: 2.5px solid rgba(139, 92, 246, .25); border-top-color: var(--purple);
     animation: spin .8s linear infinite; flex: none;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -164,10 +229,10 @@ function html() {
   .pill { border-radius: 999px; padding: .3rem .75rem; font-size: .85rem; font-weight: 600; }
   .pill--passed { background: var(--green-bg); color: var(--green); }
   .pill--failed { background: var(--red-bg); color: var(--red); }
-  .pill--skipped { background: #eef0f5; color: var(--muted); }
+  .pill--skipped { background: rgba(255, 255, 255, .06); color: var(--muted); }
   .links { margin-top: 1rem; display: flex; gap: 1rem; flex-wrap: wrap; }
   .links a {
-    color: var(--accent); text-decoration: none; font-weight: 600; font-size: .92rem;
+    color: var(--cyan); text-decoration: none; font-weight: 600; font-size: .92rem;
   }
   .links a:hover { text-decoration: underline; }
   table.history { width: 100%; border-collapse: collapse; font-size: .88rem; }
@@ -179,17 +244,24 @@ function html() {
   .conclusion-dot--failure { background: var(--red); }
   .empty { color: var(--muted); font-size: .9rem; }
   table.history a { color: var(--text); text-decoration: none; }
-  table.history a:hover { color: var(--accent); }
+  table.history a:hover { color: var(--cyan); }
 </style>
 </head>
 <body>
 <div class="page">
-  <h1>gcplaying / ferraplay — autotest suite</h1>
-  <p class="hint">Pick a suite and click Run. This triggers it on GitHub Actions — no GitHub account
-  needed — and the results show up right here once it finishes (usually 1-3 minutes).</p>
+  <div class="brand"><img class="brand__logo" src="/assets/aloplay-logo-white.svg" alt="Aloplay"></div>
+  <h1>Aloplay Automation QA Test Suites</h1>
+  <p class="hint">Dear Aloplayers, pick a suite and click Run. This triggers the selected suite on GitHub
+  Actions — no GitHub account needed — and the results show up right here once it finishes (usually 1-3
+  minutes).</p>
 
   <div class="card">
-    <h2>Suite</h2>
+    <div class="card-header">
+      <h2>Suite</h2>
+      <select id="category-select">
+        ${categoryOptions}
+      </select>
+    </div>
     ${cards}
     <div style="margin-top: 1rem;">
       <button id="run-button">Run tests</button>
@@ -215,6 +287,28 @@ const historyEl = document.getElementById('history');
 function suiteRadio() {
   return document.querySelector('input[name="suite"]:checked').value;
 }
+
+const categorySelect = document.getElementById('category-select');
+
+function applyCategoryFilter() {
+  const category = categorySelect.value;
+  let firstVisibleInput = null;
+  let checkedIsVisible = false;
+
+  document.querySelectorAll('.suite-card').forEach((card) => {
+    const matches = card.dataset.category === category;
+    card.hidden = !matches;
+    if (!matches) return;
+    const input = card.querySelector('input');
+    if (!firstVisibleInput) firstVisibleInput = input;
+    if (input.checked) checkedIsVisible = true;
+  });
+
+  if (!checkedIsVisible && firstVisibleInput) firstVisibleInput.checked = true;
+}
+
+categorySelect.addEventListener('change', applyCategoryFilter);
+applyCategoryFilter();
 
 runButton.addEventListener('click', async () => {
   runButton.disabled = true;
@@ -441,6 +535,27 @@ const CONTENT_TYPES = {
   '.csv': 'text/csv',
 };
 
+function serveAssetFile(req, res) {
+  const urlWithoutQuery = req.url.split('?')[0];
+  const relPath = decodeURIComponent(urlWithoutQuery.replace(/^\/assets\/?/, ''));
+  const filePath = path.join(ASSETS_DIR, relPath);
+  if (!filePath.startsWith(ASSETS_DIR)) {
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+  fs.readFile(filePath, (err, data) => {
+    if (err) {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+    const ext = path.extname(filePath);
+    res.writeHead(200, { 'Content-Type': CONTENT_TYPES[ext] || 'application/octet-stream', 'Cache-Control': 'public, max-age=86400' });
+    res.end(data);
+  });
+}
+
 function serveReportFile(req, res) {
   const urlWithoutQuery = req.url.split('?')[0];
   const relPath = decodeURIComponent(urlWithoutQuery.replace(/^\/report\/?/, '')) || 'index.html';
@@ -527,6 +642,11 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && req.url.startsWith('/report')) {
     serveReportFile(req, res);
+    return;
+  }
+
+  if (req.method === 'GET' && req.url.startsWith('/assets/')) {
+    serveAssetFile(req, res);
     return;
   }
 
