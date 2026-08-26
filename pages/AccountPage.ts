@@ -296,6 +296,25 @@ export class AccountPage {
     });
   }
 
+  /**
+   * The Refer a Friend page (/refer_friend) shows a personal referral
+   * link in a reusable "CopyTag" component — confirmed live 2026-08-26:
+   * `<span class="CopyTag_value__<hash>">https://gcplaying0175.com/?modal=SignUp&c=...</span>`.
+   * Checked for presence/format only — no click on the copy icon or the
+   * social-share buttons, which would leave the page in a changed state
+   * (clipboard, or an opened share dialog) for no test value.
+   */
+  async expectReferralLinkVisible(): Promise<void> {
+    await step('Open Refer a Friend and confirm a referral link is shown', async () => {
+      await this.page.goto('/refer_friend');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissPromoPopupIfPresent();
+      const referralLink = this.page.locator('[class*="CopyTag_value"]').first();
+      await expect(referralLink).toBeVisible();
+      await expect(referralLink).toContainText(/^https:\/\/.*\?modal=SignUp&c=/);
+    });
+  }
+
   async openNotifications(): Promise<void> {
     await step('Open the notifications panel', async () => {
       await this.dismissPromoPopupIfPresent();

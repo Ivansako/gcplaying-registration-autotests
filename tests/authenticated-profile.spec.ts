@@ -165,4 +165,22 @@ test.describe('gcplaying0175.com — cashier, password, and profile checks', () 
       await accountPage.attachScreenshot('Verification page');
     });
   });
+
+  test('Refer a Friend shows a personal referral link', { tag: ['@auth'] }, async ({ page }) => {
+    allure.severity('normal');
+    allure.description(
+      'Confirms the Refer a Friend page shows a personal referral link in the expected format. Does not ' +
+        'click the copy icon or any social-share button — no test value, and it would leave the page in a ' +
+        "changed state (clipboard, or an opened share dialog)."
+    );
+
+    const registrationPage = new RegistrationPage(page);
+    const accountPage = new AccountPage(page);
+    await loginAsTestUser(registrationPage);
+
+    await test.step('Open Refer a Friend and verify the referral link', async () => {
+      await accountPage.expectReferralLinkVisible();
+      await accountPage.attachScreenshot('Refer a Friend');
+    });
+  });
 });
