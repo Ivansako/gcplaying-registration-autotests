@@ -56,7 +56,7 @@ const history = []; // most recent first, capped at MAX_HISTORY
 // iterating on the brand test suite. A plain cooldown between dispatches
 // keeps the button's usage pattern close to "a person clicking it now and
 // then" rather than a burst, without needing any change on the site side.
-const ACCOUNT_CREATING_SUITES = new Set(['registration', 'brand-gcplaying', 'all']);
+const ACCOUNT_CREATING_SUITES = new Set(['brand-gcplaying', 'all']);
 const REGISTRATION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
 let lastRegistrationRunAt = null;
 
@@ -67,15 +67,9 @@ let lastRegistrationRunAt = null;
 // than living in either, since it runs both.
 const SUITES = [
   {
-    value: 'registration',
-    label: 'Registration',
-    sub: 'gcplaying0175.com — live browser, real form checks',
-    category: 'development',
-  },
-  {
     value: 'brand-gcplaying',
-    label: 'Brand test — gcplaying0175.com',
-    sub: 'Desktop + mobile, registration + login, screenshot on every check — creates a real account every run',
+    label: 'Full Brand test — gcplaying0175.com',
+    sub: 'Desktop + Mobile, Complete user flow',
     category: 'development',
   },
   {
@@ -117,7 +111,7 @@ function html() {
   const cards = SUITES.map(
     (s) => `
         <label class="suite-card" data-category="${s.category}">
-          <input type="radio" name="suite" value="${s.value}" ${s.value === 'registration' ? 'checked' : ''}>
+          <input type="radio" name="suite" value="${s.value}" ${s.value === 'brand-gcplaying' ? 'checked' : ''}>
           <span class="suite-card__title">${s.label}</span>
           <span class="suite-card__sub">${s.sub}</span>
         </label>`
@@ -788,7 +782,7 @@ const server = http.createServer((req, res) => {
         sendJson(res, 400, { error: 'Invalid JSON body.' });
         return;
       }
-      const suite = SUITES.some((s) => s.value === payload.suite) ? payload.suite : 'registration';
+      const suite = SUITES.some((s) => s.value === payload.suite) ? payload.suite : 'brand-gcplaying';
 
       if (ACCOUNT_CREATING_SUITES.has(suite) && lastRegistrationRunAt) {
         const elapsed = Date.now() - lastRegistrationRunAt;
