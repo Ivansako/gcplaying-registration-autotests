@@ -73,6 +73,7 @@ test.describe('gcplaying0175.com — full brand test (registration + login)', ()
           await test.step('Open the site anonymously', async () => {
             await registrationPage.open();
             await registrationPage.ensureLoggedOut();
+            await registrationPage.attachScreenshot(`${name} — anonymous home page`);
           });
 
           await test.step('Register a new account', async () => {
@@ -122,6 +123,7 @@ test.describe('gcplaying0175.com — full brand test (registration + login)', ()
           await test.step('Open the site anonymously', async () => {
             await registrationPage.open();
             await registrationPage.ensureLoggedOut();
+            await registrationPage.attachScreenshot(`${name} — anonymous home page`);
           });
 
           await test.step('Attempt to log in with invalid credentials', async () => {

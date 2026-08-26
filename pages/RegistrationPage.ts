@@ -160,10 +160,32 @@ export class RegistrationPage {
     const logoutLink = this.page.getByText('Log out', { exact: true });
     if (await logoutLink.isVisible().catch(() => false)) {
       await step('Log out the active session before the registration test', async () => {
+        await this.openMobileMenuIfNeeded(logoutLink);
         await this.clickDespitePromoPopup(logoutLink);
         await this.clickDespitePromoPopup(this.page.getByRole('button', { name: 'Log Out', exact: true }));
         await expect(this.registerButton).toBeVisible();
       });
+    }
+  }
+
+  /**
+   * "Log out" lives inside the site's left `SideMenu` — always open on
+   * desktop (so it's directly clickable there), but collapsed into an
+   * off-canvas drawer on mobile. Playwright's `isVisible()` reports true
+   * either way (correct CSS, just positioned off-screen via a negative
+   * `translateX` when closed), so the miss shows up later as "element is
+   * outside of the viewport" on click rather than a clean not-visible
+   * check — confirmed live 2026-08-26. Opening it needs the bottom-nav
+   * "Menu" button, which only exists on mobile; a no-op on desktop where
+   * the target's bounding box is already on-screen.
+   */
+  private async openMobileMenuIfNeeded(target: Locator): Promise<void> {
+    const box = await target.boundingBox();
+    if (box && box.x >= 0) return;
+    const mobileMenuButton = this.page.getByText('Menu', { exact: true });
+    if (await mobileMenuButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await mobileMenuButton.click();
+      await this.page.waitForTimeout(500);
     }
   }
 
