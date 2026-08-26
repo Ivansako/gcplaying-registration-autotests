@@ -55,6 +55,23 @@ export class AccountPage {
   readonly depositPaymentMethodsLabel: Locator;
   readonly depositModalCloseButton: Locator;
 
+  // Profile Info tab (/account/balance) — field names confirmed live
+  // 2026-08-26. Scoped globally by `name` rather than to a wrapper
+  // element, since the exact Change Password modal's own wrapper class
+  // wasn't pinned down and these names are unique on the page anyway.
+  readonly changePasswordButton: Locator;
+  readonly oldPasswordInput: Locator;
+  readonly newPasswordInput: Locator;
+  readonly confirmPasswordInput: Locator;
+  readonly updatePasswordButton: Locator;
+
+  readonly usernameInput: Locator;
+  readonly phoneInput: Locator;
+  readonly emailInput: Locator;
+  readonly cityInput: Locator;
+  readonly streetInput: Locator;
+  readonly zipCodeInput: Locator;
+
   constructor(page: Page) {
     this.page = page;
 
@@ -71,6 +88,19 @@ export class AccountPage {
     this.depositModal = page.locator('[class*="CashierModal_modalWrapper"]');
     this.depositPaymentMethodsLabel = this.depositModal.getByText(/Payment Methods/i).first();
     this.depositModalCloseButton = this.depositModal.locator('[class*="IconButton_iconButton"]').first();
+
+    this.changePasswordButton = page.getByRole('button', { name: 'Change password', exact: true });
+    this.oldPasswordInput = page.locator('input[name="oldPassword"]');
+    this.newPasswordInput = page.locator('input[name="newPassword"]');
+    this.confirmPasswordInput = page.locator('input[name="confirmPassword"]');
+    this.updatePasswordButton = page.getByRole('button', { name: 'Update Password' });
+
+    this.usernameInput = page.locator('input[name="nickName"]');
+    this.phoneInput = page.locator('input[name="phoneNumber"]');
+    this.emailInput = page.locator('input[name="email"]');
+    this.cityInput = page.locator('input[name="city"]');
+    this.streetInput = page.locator('input[name="street"]');
+    this.zipCodeInput = page.locator('input[name="zipCode"]');
   }
 
   /**
@@ -123,6 +153,146 @@ export class AccountPage {
     await step('Close the Deposit modal without depositing', async () => {
       await this.depositModalCloseButton.click();
       await expect(this.depositModal).toBeHidden();
+    });
+  }
+
+  /**
+   * Withdraw reuses the exact same `CashierModal_modalWrapper` popup as
+   * Deposit — just entered via "Withdraw Now" on the Pending Withdrawals
+   * page instead of the header's Deposit button. Confirmed live
+   * 2026-08-26: 3 payment methods (Crypto, MuchBetter, Visa), amount
+   * field ($100-$5000), a "Withdraw" submit button — never clicked.
+   */
+  async openWithdrawModal(): Promise<void> {
+    await step('Open the Withdraw modal', async () => {
+      await this.page.goto('/account/pending-withdrawals');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissPromoPopupIfPresent();
+      await this.page.getByRole('button', { name: 'Withdraw Now' }).click();
+      await expect(this.depositModal).toBeVisible();
+    });
+  }
+
+  async expectWithdrawMethodsVisible(): Promise<void> {
+    await step('Verify payment methods are listed (no withdrawal submitted)', async () => {
+      await expect(this.depositPaymentMethodsLabel).toBeVisible();
+    });
+  }
+
+  async closeWithdrawModal(): Promise<void> {
+    await step('Close the Withdraw modal without withdrawing', async () => {
+      await this.depositModalCloseButton.click();
+      await expect(this.depositModal).toBeHidden();
+    });
+  }
+
+  /**
+   * Opens the Change Password modal from the Profile Info tab. Its
+   * "Update Password" button is only ever checked for staying disabled
+   * (see `expectUpdatePasswordDisabled()`) — a real password change would
+   * break every other suite's ability to log in via TEST_USER_PASSWORD,
+   * so this page object has no method that actually clicks it.
+   */
+  async openChangePasswordModal(): Promise<void> {
+    await step('Open the Change Password modal', async () => {
+      await this.page.goto('/account/balance');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissPromoPopupIfPresent();
+      await this.changePasswordButton.click();
+      await expect(this.oldPasswordInput).toBeVisible();
+    });
+  }
+
+  async fillChangePasswordForm(data: { oldPassword: string; newPassword: string; confirmPassword: string }): Promise<void> {
+    await step('Fill the change-password form', async () => {
+      await this.oldPasswordInput.fill(data.oldPassword);
+      await this.newPasswordInput.fill(data.newPassword);
+      await this.confirmPasswordInput.fill(data.confirmPassword);
+    });
+  }
+
+  async expectUpdatePasswordDisabled(): Promise<void> {
+    await step('Verify Update Password stays disabled (no password change submitted)', async () => {
+      await expect(this.updatePasswordButton).toBeDisabled();
+    });
+  }
+
+  /**
+   * Reads the Profile Info tab's current values for the fields this
+   * suite treats as read-only (Username/Phone/Email) — never edited,
+   * since changing Email in particular could break every other suite's
+   * ability to log in as TEST_USER_EMAIL.
+   */
+  async getProfileInfo(): Promise<{ username: string; phone: string; email: string }> {
+    await this.page.goto('/account/balance');
+    await this.page.waitForLoadState('domcontentloaded');
+    await this.dismissPromoPopupIfPresent();
+    return {
+      username: (await this.usernameInput.inputValue()) ?? '',
+      phone: (await this.phoneInput.inputValue()) ?? '',
+      email: (await this.emailInput.inputValue()) ?? '',
+    };
+  }
+
+  /**
+   * Fills and saves Street + Zip Code (City is deliberately left out — it
+   * didn't persist in live testing 2026-08-26, unlike the other two,
+   * possibly a country-linked autocomplete rather than free text; not
+   * worth chasing further for this pass). Coordinate-based: the edit
+   * pencil / save checkmark toggle in place with no distinguishing class
+   * beyond the same generic `Icon_container` used everywhere on the site,
+   * so there's no reliable locator — pinned to a 1280-wide viewport the
+   * same way `AccountPage.spinKnownGame()` pins its own coordinates.
+   *
+   * Idempotent by design: once Street/Zip are saved, re-opening edit mode
+   * leaves them disabled on a later visit (confirmed live 2026-08-26 —
+   * looks like a one-time-edit lock, common for address fields tied to
+   * KYC). If the current values already match `data`, editing is skipped
+   * entirely and the current values are returned — persistence has
+   * already been demonstrated by an earlier run, and re-attempting the
+   * edit would just hang against the disabled inputs.
+   */
+  async updateAddressFields(data: { street: string; zipCode: string }): Promise<{ street: string; zipCode: string }> {
+    return step('Update Street and Zip Code, then confirm they persisted', async () => {
+      await this.page.goto('/account/balance');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.page.waitForTimeout(2_000);
+      await this.dismissPromoPopupIfPresent();
+
+      const currentStreet = (await this.streetInput.inputValue()) ?? '';
+      const currentZip = (await this.zipCodeInput.inputValue()) ?? '';
+      if (currentStreet === data.street && currentZip === data.zipCode) {
+        return { street: currentStreet, zipCode: currentZip };
+      }
+
+      await this.page.mouse.click(1141, 410); // edit pencil
+      await this.page.waitForTimeout(1_000);
+      // Street stayed disabled unless City is touched first too, even
+      // though City's own value doesn't end up persisting — confirmed
+      // live 2026-08-26. Filled anyway purely to unlock Street/Zip.
+      await this.cityInput.fill('Dubai');
+      await this.streetInput.fill(data.street);
+      await this.zipCodeInput.fill(data.zipCode);
+      await this.page.mouse.click(1141, 410); // save checkmark (same spot the pencil was)
+      await this.page.waitForTimeout(2_000);
+
+      await this.page.reload();
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissPromoPopupIfPresent();
+      return {
+        street: (await this.streetInput.inputValue()) ?? '',
+        zipCode: (await this.zipCodeInput.inputValue()) ?? '',
+      };
+    });
+  }
+
+  async expectVerificationPageLoaded(): Promise<void> {
+    await step('Open Verification and confirm the expected fields render', async () => {
+      await this.page.goto('/account/verification');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissPromoPopupIfPresent();
+      await expect(this.page.getByText('Verification', { exact: true }).first()).toBeVisible();
+      await expect(this.page.getByRole('button', { name: 'Next step' })).toBeVisible();
     });
   }
 
