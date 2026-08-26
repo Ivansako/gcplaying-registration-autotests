@@ -94,6 +94,10 @@ export class AccountPage {
     await attachment(name, buffer, ContentType.PNG);
   }
 
+  async getBalanceText(): Promise<string> {
+    return (await this.balanceContainer.textContent())?.trim() ?? '';
+  }
+
   async expectBalanceVisible(): Promise<void> {
     await step('Verify the account balance is visible', async () => {
       await expect(this.balanceContainer).toBeVisible();
@@ -230,6 +234,60 @@ export class AccountPage {
         await this.page.waitForTimeout(2_000);
       }
       await expect(this.page.locator('iframe').first()).toBeVisible();
+    });
+  }
+
+  /**
+   * Places one real, minimum-bet spin on a specific, pre-confirmed game
+   * ("Rock & Riches: Hold & Win", `/game/real/45933`) and reports the
+   * balance before/after. Verified live 2026-08-26: reduces the default
+   * $1.00 bet down to the game's $0.20 minimum via the "-" control, spins,
+   * and the header balance moved from $100.00 to $99.80 — a real bet was
+   * placed and paid out from the test account's actual balance.
+   *
+   * This is coordinate-based, not element-based — the game's bet/spin
+   * controls render on an opaque `<canvas>` with no accessible DOM (same
+   * constraint as `tests/game-providers.spec.ts`'s providers), so there's
+   * no locator to click. The coordinates only hold for this exact game at
+   * a 1280x800 viewport; a different game or a UI change would need new
+   * coordinates, found the same way this page's own findings were: by
+   * hand, screenshot-by-screenshot, not something generalizable to
+   * "spin any game."
+   */
+  async spinKnownGame(): Promise<{ balanceBefore: string; balanceAfter: string }> {
+    return step('Launch a known game and place one real minimum-bet spin', async () => {
+      const balanceBefore = await this.getBalanceText();
+
+      const gameLink = this.page.locator('a[href="/game/real/45933"]');
+      await gameLink.click();
+      await this.page.waitForTimeout(8_000);
+      await this.dismissPromoPopupIfPresent();
+
+      const gameFrame = this.page.frameLocator('iframe').first();
+      const continueButton = gameFrame.getByText('CONTINUE', { exact: false });
+      if (await continueButton.isVisible({ timeout: 5_000 }).catch(() => false)) {
+        await continueButton.click();
+        await this.page.waitForTimeout(2_000);
+      }
+
+      // Reduce the bet to this game's minimum ($0.20) via the "-" control,
+      // then spin — both coordinate-based, see method-level comment.
+      for (let i = 0; i < 8; i++) {
+        await this.page.mouse.click(636, 745);
+        await this.page.waitForTimeout(300);
+      }
+      await this.page.mouse.click(1042, 745);
+      await this.page.waitForTimeout(8_000);
+
+      // The site header doesn't show a $ balance next to Deposit while a
+      // game is open (only the game's own in-game counter does) —
+      // navigate back to the lobby so balanceAfter reads from the same
+      // header element balanceBefore did.
+      await this.page.goBack();
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissPromoPopupIfPresent();
+      const balanceAfter = await this.getBalanceText();
+      return { balanceBefore, balanceAfter };
     });
   }
 }

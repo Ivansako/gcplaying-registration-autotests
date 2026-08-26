@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { allure } from 'allure-playwright';
 import { RegistrationPage } from '../pages/RegistrationPage';
 import { AccountPage } from '../pages/AccountPage';
@@ -146,6 +146,40 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
       allure.parameter('Game', href);
       await accountPage.expectGameReachedPlayableState();
       await accountPage.attachScreenshot('Game — playable state reached');
+    });
+  });
+
+  // Own describe: pins the viewport the spin's click coordinates were
+  // confirmed against (see AccountPage.spinKnownGame()'s comment).
+  test.describe('Real spin', () => {
+    test.use({ viewport: { width: 1280, height: 800 } });
+
+    test('A real spin decreases the balance (Rock & Riches: Hold & Win)', { tag: ['@auth'] }, async ({ page }) => {
+      // Login + game load (8s) + bet-reduce clicks + spin wait (8s) don't
+      // fit the default 45s.
+      test.setTimeout(75_000);
+
+      allure.severity('normal');
+      allure.description(
+        'Places one real, minimum-bet ($0.20) spin on a specific pre-confirmed game and verifies the ' +
+          "test account's balance actually decreases — not just that the game opens. Coordinate-based " +
+          '(the game renders on an opaque canvas), so scoped to this one game/viewport — see ' +
+          'AccountPage.spinKnownGame() for why this approach is not generalizable to other games.'
+      );
+
+      const registrationPage = new RegistrationPage(page);
+      const accountPage = new AccountPage(page);
+      await loginAsTestUser(registrationPage);
+
+      await test.step('Place a real spin and compare balance before/after', async () => {
+        const { balanceBefore, balanceAfter } = await accountPage.spinKnownGame();
+        allure.parameter('Balance before', balanceBefore);
+        allure.parameter('Balance after', balanceAfter);
+        await accountPage.attachScreenshot('After the spin');
+
+        const parse = (text: string) => parseFloat(text.replace(/[^\d.]/g, ''));
+        expect(parse(balanceAfter)).toBeLessThan(parse(balanceBefore));
+      });
     });
   });
 });
