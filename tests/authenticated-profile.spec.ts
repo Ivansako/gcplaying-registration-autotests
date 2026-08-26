@@ -65,6 +65,9 @@ test.describe('gcplaying0175.com — cashier, password, and profile checks', () 
   });
 
   test('Change password validation', { tag: ['@auth'] }, async ({ page }) => {
+    // 3 cases, each with a UI check waiting out a 3s networkidle cap.
+    test.setTimeout(75_000);
+
     allure.severity('critical');
     allure.description(
       'Fills the change-password form with several invalid combinations and confirms "Update Password" ' +

@@ -45,7 +45,10 @@ test.describe('gcplaying0175.com — public content pages', () => {
       });
 
       test(`Public content pages load — ${name}`, { tag: ['@brand', '@content'] }, async ({ page }) => {
-        test.setTimeout(90_000);
+        // The UI check on each page now waits for networkidle (capped 3s)
+        // + images-settled on top of the navigation itself, so 7 pages
+        // costs noticeably more than before.
+        test.setTimeout(150_000);
 
         allure.severity('normal');
         allure.description(

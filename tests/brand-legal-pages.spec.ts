@@ -43,7 +43,10 @@ test.describe('gcplaying0175.com — footer / legal pages', () => {
       });
 
       test(`Footer and legal pages load — ${name}`, { tag: ['@brand', '@legal'] }, async ({ page }) => {
-        test.setTimeout(90_000);
+        // The UI check on each page now waits for networkidle (capped 3s)
+        // + images-settled on top of the navigation itself, so 8 pages
+        // costs noticeably more than before.
+        test.setTimeout(150_000);
 
         allure.severity('normal');
         allure.description(

@@ -41,6 +41,10 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
   }
 
   test('Header shows balance, deposit, notifications, and account menu', { tag: ['@auth'] }, async ({ page }) => {
+    // 4 UI checks, each waiting out a 3s networkidle cap (persistent
+    // websocket keeps the authenticated session from ever going idle).
+    test.setTimeout(75_000);
+
     allure.severity('critical');
     allure.description(
       'Balance is visible, Deposit opens a payment-methods list (never submitted — no real payment ' +
@@ -76,8 +80,9 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
   });
 
   test('Main navigation sections load for a logged-in user', { tag: ['@auth'] }, async ({ page }) => {
-    // Default 45s doesn't leave room for 6 section visits + screenshots.
-    test.setTimeout(90_000);
+    // Default 45s doesn't leave room for 6 section visits + screenshots,
+    // each now waiting out a 3s networkidle cap (persistent websocket).
+    test.setTimeout(150_000);
 
     allure.severity('normal');
     allure.description(
@@ -102,8 +107,9 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
   });
 
   test('Account menu sections are reachable', { tag: ['@auth'] }, async ({ page }) => {
-    // Default 45s doesn't leave room for ~7 section visits + screenshots.
-    test.setTimeout(90_000);
+    // Default 45s doesn't leave room for ~7 section visits + screenshots,
+    // each now waiting out a 3s networkidle cap (persistent websocket).
+    test.setTimeout(150_000);
 
     allure.severity('normal');
     allure.description(
@@ -131,6 +137,10 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
   });
 
   test('Launching a game reaches a playable state', { tag: ['@auth'] }, async ({ page }) => {
+    // Game launch + the UI check's networkidle wait (a live game iframe
+    // rarely goes idle, so it reliably eats the full 3s cap).
+    test.setTimeout(60_000);
+
     allure.severity('normal');
     allure.description(
       "Launches a game from the lobby as the logged-in test user and confirms it reaches a playable " +

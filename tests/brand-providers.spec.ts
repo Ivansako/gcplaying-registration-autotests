@@ -36,7 +36,9 @@ test.describe('gcplaying0175.com — provider pages (sample)', () => {
       });
 
       test(`A sample of provider pages load — ${name}`, { tag: ['@brand', '@providers'] }, async ({ page }) => {
-        test.setTimeout(90_000);
+        // The UI check on each page now waits for networkidle (capped 3s)
+        // + images-settled on top of the navigation itself.
+        test.setTimeout(150_000);
 
         allure.severity('normal');
         allure.description(

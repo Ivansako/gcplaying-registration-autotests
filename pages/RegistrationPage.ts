@@ -30,6 +30,12 @@ import { waitForRegistrationSlot } from '../utils/registrationThrottle';
  *  - Password requirements are shown via a live checklist of 5 items
  *    (see PASSWORD_REQUIREMENTS below), each marked ✓/✗ as the user
  *    types.
+ *
+ * KNOWN SITE BUG (see AccountPage.ts's file header for the full writeup):
+ * post-login screenshots ("registration succeeded", "login succeeded")
+ * pick up a recurring "em: INSUFFICIENT_PATH" JS error via
+ * `attachScreenshot()`'s console-error check — left failing
+ * deliberately, not filtered out.
  */
 
 export const PASSWORD_REQUIREMENTS = [
@@ -76,8 +82,15 @@ export class RegistrationPage {
   // and covers the header, blocking clicks on Log out / Deposit / etc.
   readonly promoPopupCloseButton: Locator;
 
+  private consoleErrors: string[] = [];
+
   constructor(page: Page) {
     this.page = page;
+    this.page.on('console', (msg) => {
+      // Excludes 429s specifically — see BrandContentPage.ts's constructor
+      // comment for why (test-speed noise, not a real defect).
+      if (msg.type() === 'error' && !/status of 429/.test(msg.text())) this.consoleErrors.push(msg.text());
+    });
 
     // IMPORTANT: both the tab switcher and the form's submit button are
     // labeled exactly "Sign up" — getByRole with exact:true would match
@@ -347,15 +360,59 @@ export class RegistrationPage {
     });
   }
 
+  private async waitForImagesLoaded(timeoutMs = 4_000): Promise<void> {
+    await this.page
+      .waitForFunction(() => Array.from(document.querySelectorAll('img')).every((img) => img.complete), undefined, {
+        timeout: timeoutMs,
+      })
+      .catch(() => {});
+  }
+
+  private async getBrokenImages(): Promise<string[]> {
+    return this.page.evaluate(() =>
+      Array.from(document.querySelectorAll('img'))
+        .filter((img) => img.complete && img.naturalWidth === 0 && img.src)
+        .map((img) => img.src)
+    );
+  }
+
+  private async getHorizontalOverflow(): Promise<number> {
+    return this.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  }
+
   /**
-   * Attaches a full-page screenshot to the Allure report at the exact
-   * point it's called — used after each meaningful check in the brand
-   * test so every step has visual evidence, on both desktop and
-   * mobile viewports.
+   * Second-stage UI check, used after each meaningful check in the brand
+   * test so every step has visual evidence, on both desktop and mobile
+   * viewports. Waits for the page to genuinely finish rendering
+   * (networkidle, capped short at 3s so a persistent websocket/polling
+   * connection — expected once logged in — doesn't burn the full
+   * default timeout on every single check + every <img> settled), then
+   * checks for broken images, JS console errors, and horizontal layout
+   * overflow before attaching the screenshot and a JSON report. Uses
+   * `expect.soft` so all three checks run and are all reported even if
+   * one fails.
    */
   async attachScreenshot(name: string): Promise<void> {
-    const buffer = await this.page.screenshot({ fullPage: true });
-    await attachment(name, buffer, ContentType.PNG);
+    await step(`UI check: ${name}`, async () => {
+      await this.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
+      await this.waitForImagesLoaded();
+
+      const consoleErrors = this.consoleErrors.splice(0);
+      const brokenImages = await this.getBrokenImages();
+      const overflowPx = await this.getHorizontalOverflow();
+
+      await attachment(
+        `UI report — ${name}`,
+        JSON.stringify({ brokenImages, overflowPx, consoleErrors }, null, 2),
+        ContentType.JSON
+      );
+      const buffer = await this.page.screenshot({ fullPage: true });
+      await attachment(name, buffer, ContentType.PNG);
+
+      expect.soft(brokenImages, `Broken images on "${name}"`).toEqual([]);
+      expect.soft(overflowPx, `Horizontal overflow on "${name}" (px wider than viewport)`).toBeLessThanOrEqual(0);
+      expect.soft(consoleErrors, `Browser console errors on "${name}"`).toEqual([]);
+    });
   }
 
   async openLoginForm(): Promise<void> {

@@ -22,9 +22,18 @@ import { ContentType } from 'allure-js-commons';
  */
 export class BrandContentPage {
   readonly page: Page;
+  private consoleErrors: string[] = [];
 
   constructor(page: Page) {
     this.page = page;
+    this.page.on('console', (msg) => {
+      // Excludes 429s specifically: visiting several pages back-to-back in
+      // one test reliably rate-limits a background resource call (the
+      // site's own Cloudflare limit, confirmed live 2026-08-27) — noise
+      // from test speed, not a real defect. Other failures (404, 500, JS
+      // errors) still count.
+      if (msg.type() === 'error' && !/status of 429/.test(msg.text())) this.consoleErrors.push(msg.text());
+    });
   }
 
   /**
@@ -43,9 +52,67 @@ export class BrandContentPage {
     }
   }
 
+  /**
+   * Waits for the page's images to finish loading (`img.complete` — true
+   * for both successfully- and failed-loaded images, so this never hangs
+   * on a genuinely broken image), on top of the networkidle wait already
+   * done by the caller. Best-effort: a page with persistent background
+   * requests (polling, websockets) can legitimately never settle.
+   */
+  private async waitForImagesLoaded(timeoutMs = 4_000): Promise<void> {
+    await this.page
+      .waitForFunction(() => Array.from(document.querySelectorAll('img')).every((img) => img.complete), undefined, {
+        timeout: timeoutMs,
+      })
+      .catch(() => {});
+  }
+
+  private async getBrokenImages(): Promise<string[]> {
+    return this.page.evaluate(() =>
+      Array.from(document.querySelectorAll('img'))
+        .filter((img) => img.complete && img.naturalWidth === 0 && img.src)
+        .map((img) => img.src)
+    );
+  }
+
+  private async getHorizontalOverflow(): Promise<number> {
+    return this.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  }
+
+  /**
+   * Second-stage UI check, run right after each functional check: waits
+   * for the page to genuinely finish rendering (networkidle + every
+   * <img> settled — a plain `domcontentloaded` wait was catching promo
+   * banners mid-load in screenshots), then checks for broken images, JS
+   * console errors, and horizontal layout overflow before attaching a
+   * full-page screenshot and a JSON report. Uses `expect.soft` so all
+   * three checks run — and are all visible in the report — even if one
+   * of them fails. The networkidle wait is capped short (3s) rather than
+   * the Playwright default, since a page with any persistent background
+   * connection (websocket, polling) would otherwise burn the full
+   * default timeout on every single check.
+   */
   async attachScreenshot(name: string): Promise<void> {
-    const buffer = await this.page.screenshot({ fullPage: true });
-    await attachment(name, buffer, ContentType.PNG);
+    await step(`UI check: ${name}`, async () => {
+      await this.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
+      await this.waitForImagesLoaded();
+
+      const consoleErrors = this.consoleErrors.splice(0);
+      const brokenImages = await this.getBrokenImages();
+      const overflowPx = await this.getHorizontalOverflow();
+
+      await attachment(
+        `UI report — ${name}`,
+        JSON.stringify({ brokenImages, overflowPx, consoleErrors }, null, 2),
+        ContentType.JSON
+      );
+      const buffer = await this.page.screenshot({ fullPage: true });
+      await attachment(name, buffer, ContentType.PNG);
+
+      expect.soft(brokenImages, `Broken images on "${name}"`).toEqual([]);
+      expect.soft(overflowPx, `Horizontal overflow on "${name}" (px wider than viewport)`).toBeLessThanOrEqual(0);
+      expect.soft(consoleErrors, `Browser console errors on "${name}"`).toEqual([]);
+    });
   }
 
   /**

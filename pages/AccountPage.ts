@@ -9,6 +9,17 @@ import { ContentType } from 'allure-js-commons';
  * `RegistrationPage` owns the auth modal itself (signup/login); this page
  * object picks up from an already-authenticated session.
  *
+ * KNOWN SITE BUG (confirmed live and in isolation 2026-08-27, not a test
+ * artifact): a JS error — "em: INSUFFICIENT_PATH", thrown from a useMemo
+ * inside the shared `[locale]` layout chunk — fires a burst of ~21
+ * identical occurrences immediately after login and keeps recurring on
+ * every authenticated page. `attachScreenshot()`'s console-error check
+ * (see below) picks this up and correctly fails every authenticated
+ * check because of it — left failing deliberately rather than filtered
+ * out, since this is a real defect, not noise (unlike the 429s filtered
+ * in the console listener below). Same applies to `RegistrationPage`'s
+ * post-login screenshots. Will stay red until the site fixes it.
+ *
  * Markup confirmed live on 2026-08-26 (logged in as the TEST_USER_EMAIL
  * account via a throwaway discovery script):
  *  - The header balance and the Deposit button share one container
@@ -72,8 +83,15 @@ export class AccountPage {
   readonly streetInput: Locator;
   readonly zipCodeInput: Locator;
 
+  private consoleErrors: string[] = [];
+
   constructor(page: Page) {
     this.page = page;
+    this.page.on('console', (msg) => {
+      // Excludes 429s specifically — see BrandContentPage.ts's constructor
+      // comment for why (test-speed noise, not a real defect).
+      if (msg.type() === 'error' && !/status of 429/.test(msg.text())) this.consoleErrors.push(msg.text());
+    });
 
     this.depositButton = page.getByRole('button', { name: 'Deposit' });
     // The account-menu popup has its own "Total Balance" element using a
@@ -119,9 +137,58 @@ export class AccountPage {
     }
   }
 
+  private async waitForImagesLoaded(timeoutMs = 4_000): Promise<void> {
+    await this.page
+      .waitForFunction(() => Array.from(document.querySelectorAll('img')).every((img) => img.complete), undefined, {
+        timeout: timeoutMs,
+      })
+      .catch(() => {});
+  }
+
+  private async getBrokenImages(): Promise<string[]> {
+    return this.page.evaluate(() =>
+      Array.from(document.querySelectorAll('img'))
+        .filter((img) => img.complete && img.naturalWidth === 0 && img.src)
+        .map((img) => img.src)
+    );
+  }
+
+  private async getHorizontalOverflow(): Promise<number> {
+    return this.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+  }
+
+  /**
+   * Second-stage UI check, run right after each functional check. Waits
+   * for the page to genuinely finish rendering (networkidle, capped
+   * short at 3s — a logged-in session has persistent websocket/polling
+   * connections for balance/notifications that would otherwise burn the
+   * full default timeout on every single check + every <img> settled),
+   * then checks for broken images, JS console errors, and horizontal
+   * layout overflow before attaching the screenshot and a JSON report.
+   * Uses `expect.soft` so all three checks run and are all reported even
+   * if one fails.
+   */
   async attachScreenshot(name: string): Promise<void> {
-    const buffer = await this.page.screenshot({ fullPage: true });
-    await attachment(name, buffer, ContentType.PNG);
+    await step(`UI check: ${name}`, async () => {
+      await this.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
+      await this.waitForImagesLoaded();
+
+      const consoleErrors = this.consoleErrors.splice(0);
+      const brokenImages = await this.getBrokenImages();
+      const overflowPx = await this.getHorizontalOverflow();
+
+      await attachment(
+        `UI report — ${name}`,
+        JSON.stringify({ brokenImages, overflowPx, consoleErrors }, null, 2),
+        ContentType.JSON
+      );
+      const buffer = await this.page.screenshot({ fullPage: true });
+      await attachment(name, buffer, ContentType.PNG);
+
+      expect.soft(brokenImages, `Broken images on "${name}"`).toEqual([]);
+      expect.soft(overflowPx, `Horizontal overflow on "${name}" (px wider than viewport)`).toBeLessThanOrEqual(0);
+      expect.soft(consoleErrors, `Browser console errors on "${name}"`).toEqual([]);
+    });
   }
 
   async getBalanceText(): Promise<string> {
