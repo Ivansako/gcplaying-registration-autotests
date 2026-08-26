@@ -50,6 +50,16 @@ const ghHeaders = {
 let currentRun = null; // { runId, suite, status, conclusion, htmlUrl, reportReady, statistic, dispatchedAt }
 const history = []; // most recent first, capped at MAX_HISTORY
 
+// Suites whose positive tests register a real account on the live site.
+// GitHub's own sign-up endpoint rate-limits (429s) bursts of registrations
+// from the same source in a short window — we hit this ourselves while
+// iterating on the brand test suite. A plain cooldown between dispatches
+// keeps the button's usage pattern close to "a person clicking it now and
+// then" rather than a burst, without needing any change on the site side.
+const ACCOUNT_CREATING_SUITES = new Set(['registration', 'brand-gcplaying', 'all']);
+const REGISTRATION_COOLDOWN_MS = 5 * 60 * 1000; // 5 minutes
+let lastRegistrationRunAt = null;
+
 // `category` groups suites in the page's Category dropdown: tests that
 // exercise the site's actual product behavior (game providers) are
 // "Product"; tests that exercise the codebase's own auth/registration
@@ -774,8 +784,20 @@ const server = http.createServer((req, res) => {
       }
       const suite = SUITES.some((s) => s.value === payload.suite) ? payload.suite : 'registration';
 
+      if (ACCOUNT_CREATING_SUITES.has(suite) && lastRegistrationRunAt) {
+        const elapsed = Date.now() - lastRegistrationRunAt;
+        if (elapsed < REGISTRATION_COOLDOWN_MS) {
+          const waitSeconds = Math.ceil((REGISTRATION_COOLDOWN_MS - elapsed) / 1000);
+          sendJson(res, 429, {
+            error: `This suite registers a real account on the live site. Please wait ${waitSeconds}s before running it again — the site rate-limits sign-ups from repeated runs.`,
+          });
+          return;
+        }
+      }
+
       try {
         const runId = await dispatchWorkflow(suite);
+        if (ACCOUNT_CREATING_SUITES.has(suite)) lastRegistrationRunAt = Date.now();
         currentRun = { runId, suite, status: 'queued', reportFetched: false, reportReady: false };
         sendJson(res, 202, { started: true, runId });
 
