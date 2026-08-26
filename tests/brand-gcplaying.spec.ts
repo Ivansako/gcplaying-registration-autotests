@@ -32,6 +32,12 @@ const VIEWPORTS = [
 ];
 
 test.describe('gcplaying0175.com — full brand test (registration + login)', () => {
+  // A CI retry would re-run a whole viewport's test from scratch — including
+  // a fresh real sign-up POST — right after the first attempt. Disabled here
+  // for the same reason as registration.spec.ts's real-registration tests
+  // (see RegistrationPage.submit()'s pacing comment).
+  test.describe.configure({ retries: 0 });
+
   for (const { name, config } of VIEWPORTS) {
     test.describe(name, () => {
       test.use({ ...config });
@@ -47,6 +53,12 @@ test.describe('gcplaying0175.com — full brand test (registration + login)', ()
         `Register a new account and log back in — ${name}`,
         { tag: ['@brand', '@positive'] },
         async ({ page }) => {
+          // The default 45s test timeout doesn't leave enough room once the
+          // rate-limit pacing wait (RegistrationPage.submit()) is added on
+          // top of 2 full auth flows (register + log back in) across 6+
+          // screenshots.
+          test.setTimeout(90_000);
+
           allure.severity('critical');
           allure.description(
             'Full flow: register a new account with a `wiztest<letter><digit>@gmail.com` address, verify ' +

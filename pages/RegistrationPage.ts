@@ -39,6 +39,15 @@ export const PASSWORD_REQUIREMENTS = [
   'At least one capital',
 ] as const;
 
+/**
+ * The site's own sign-up endpoint (behind Cloudflare) rate-limits (429)
+ * bursts of registrations from the same source — hit while iterating on
+ * these suites locally. This pause before every real submit() keeps
+ * consecutive registrations spaced like a person clicking through the
+ * form, not a script hammering it.
+ */
+const REGISTRATION_PACING_MS = 12_000;
+
 export class RegistrationPage {
   readonly page: Page;
 
@@ -203,10 +212,9 @@ export class RegistrationPage {
   }
 
   /**
-   * Default currency is USD and default country is United Arab
-   * Emirates (+971), so an explicit selection is only needed for a
-   * different value. Kept for potential multi-currency/multi-country
-   * scenarios (not part of the base test suite).
+   * Default currency is USD, so an explicit selection is only needed for
+   * a different value. Kept for potential multi-currency scenarios (not
+   * part of the base test suite).
    */
   async selectCurrency(currency: 'USD' | 'EUR'): Promise<void> {
     await step(`Select currency: ${currency}`, async () => {
@@ -215,7 +223,28 @@ export class RegistrationPage {
     });
   }
 
+  /**
+   * The form's default country is geolocation-based, not a fixed value —
+   * confirmed live 2026-08-26 (it showed Italy from this session's IP,
+   * instead of the United Arab Emirates seen when the suite was first
+   * built), which silently broke registration since every generated
+   * phone number is a UAE mobile number (see generateValidPhone()) and
+   * gets rejected under any other country's format. Country is a
+   * searchable autocomplete: typing filters a list of clickable rows
+   * (`Select_list__container_element`, a CSS-module class so matched by
+   * prefix) rather than a simple click-to-open dropdown like Currency/Code.
+   */
+  async selectCountry(query: string, optionText: string): Promise<void> {
+    await step(`Select country: ${optionText}`, async () => {
+      await this.countryInput.fill(query);
+      await this.modal.locator('[class*="Select_list__container_element"]', { hasText: optionText }).click();
+    });
+  }
+
   async submit(): Promise<void> {
+    await step('Wait before submitting (rate-limit pacing)', async () => {
+      await this.page.waitForTimeout(REGISTRATION_PACING_MS);
+    });
     await step('Submit the registration form', async () => {
       await this.submitButton.click();
     });
@@ -227,6 +256,7 @@ export class RegistrationPage {
    * submit.
    */
   async fillForm(data: RegistrationData): Promise<void> {
+    await this.selectCountry('United Arab', 'United Arab Emirates');
     await this.fillPhone(data.phone);
     await this.fillEmail(data.email);
     await this.fillPassword(data.password);

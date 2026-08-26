@@ -49,36 +49,47 @@ test.describe('Registration on gcplaying0175.com', () => {
     await registrationPage.ensureLoggedOut();
   });
 
-  test(
-    'Successful registration with valid data',
-    { tag: ['@smoke', '@positive'] },
-    async ({ page }) => {
-      allure.severity('critical');
-      allure.description(
-        'The user fills the registration form with valid, unique data, the "Sign up" button ' +
-          'becomes enabled, and after submitting, the modal closes and the user ends up in an ' +
-          'authenticated session.'
-      );
+  // Own describe so retries can be disabled just for this test: it creates
+  // a real account, and a CI retry of a slow-but-successful run would fire
+  // a 2nd real sign-up POST within seconds of the 1st (see RegistrationPage.submit()).
+  test.describe('Successful registration with valid data', () => {
+    test.describe.configure({ retries: 0 });
 
-      const registrationPage = new RegistrationPage(page);
-      const data = generateValidRegistrationData();
+    test(
+      'Successful registration with valid data',
+      { tag: ['@smoke', '@positive'] },
+      async ({ page }) => {
+        // Default 45s timeout doesn't leave room for the rate-limit pacing
+        // wait in RegistrationPage.submit() on top of the normal flow.
+        test.setTimeout(75_000);
 
-      await test.step('Open the registration form', async () => {
-        await registrationPage.openRegistrationForm();
-        await registrationPage.expectSubmitDisabled();
-      });
+        allure.severity('critical');
+        allure.description(
+          'The user fills the registration form with valid, unique data, the "Sign up" button ' +
+            'becomes enabled, and after submitting, the modal closes and the user ends up in an ' +
+            'authenticated session.'
+        );
 
-      await test.step('Fill the form with valid data', async () => {
-        await registrationPage.fillForm(data);
-        await registrationPage.expectSubmitEnabled();
-      });
+        const registrationPage = new RegistrationPage(page);
+        const data = generateValidRegistrationData();
 
-      await test.step('Submit the form and verify successful registration', async () => {
-        await registrationPage.submit();
-        await registrationPage.expectSuccess();
-      });
-    }
-  );
+        await test.step('Open the registration form', async () => {
+          await registrationPage.openRegistrationForm();
+          await registrationPage.expectSubmitDisabled();
+        });
+
+        await test.step('Fill the form with valid data', async () => {
+          await registrationPage.fillForm(data);
+          await registrationPage.expectSubmitEnabled();
+        });
+
+        await test.step('Submit the form and verify successful registration', async () => {
+          await registrationPage.submit();
+          await registrationPage.expectSuccess();
+        });
+      }
+    );
+  });
 
   test(
     'Sign up button stays disabled while the form is empty',
@@ -192,39 +203,50 @@ test.describe('Registration on gcplaying0175.com', () => {
     );
   }
 
-  test(
-    'Cannot register again with an already used email',
-    { tag: ['@negative', '@duplicate'] },
-    async ({ page }) => {
-      allure.severity('critical');
-      allure.description(
-        'Register a user once, then repeat registration with the same email (but a new ' +
-          'phone/password) — the second attempt must not succeed.'
-      );
+  // Own describe so retries can be disabled: this test fires 2 real sign-up
+  // POSTs itself (see RegistrationPage.submit()'s pacing comment) — a CI
+  // retry would add 2 more right after.
+  test.describe('Cannot register again with an already used email', () => {
+    test.describe.configure({ retries: 0 });
 
-      const registrationPage = new RegistrationPage(page);
-      const data = generateValidRegistrationData();
+    test(
+      'Cannot register again with an already used email',
+      { tag: ['@negative', '@duplicate'] },
+      async ({ page }) => {
+        // This test submits twice — 2x the rate-limit pacing wait from
+        // RegistrationPage.submit() — so it needs even more headroom.
+        test.setTimeout(90_000);
 
-      await test.step('First registration — should succeed', async () => {
-        await registrationPage.openRegistrationForm();
-        await registrationPage.fillForm(data);
-        await registrationPage.submit();
-        await registrationPage.expectSuccess();
-      });
+        allure.severity('critical');
+        allure.description(
+          'Register a user once, then repeat registration with the same email (but a new ' +
+            'phone/password) — the second attempt must not succeed.'
+        );
 
-      await test.step('Repeat registration with the same email — should be rejected', async () => {
-        await registrationPage.ensureLoggedOut();
-        await registrationPage.openRegistrationForm();
-        await registrationPage.fillForm(generateValidRegistrationData({ email: data.email }));
-        await registrationPage.submit();
-        // The server's "email already in use" message wasn't pinned
-        // down live (to avoid creating duplicate accounts in
-        // production) — we verify by the fact that the modal did NOT
-        // close and registration did not succeed.
-        await test.step('Verify registration did not succeed', async () => {
-          await registrationPage.modal.waitFor({ state: 'visible' });
+        const registrationPage = new RegistrationPage(page);
+        const data = generateValidRegistrationData();
+
+        await test.step('First registration — should succeed', async () => {
+          await registrationPage.openRegistrationForm();
+          await registrationPage.fillForm(data);
+          await registrationPage.submit();
+          await registrationPage.expectSuccess();
         });
-      });
-    }
-  );
+
+        await test.step('Repeat registration with the same email — should be rejected', async () => {
+          await registrationPage.ensureLoggedOut();
+          await registrationPage.openRegistrationForm();
+          await registrationPage.fillForm(generateValidRegistrationData({ email: data.email }));
+          await registrationPage.submit();
+          // The server's "email already in use" message wasn't pinned
+          // down live (to avoid creating duplicate accounts in
+          // production) — we verify by the fact that the modal did NOT
+          // close and registration did not succeed.
+          await test.step('Verify registration did not succeed', async () => {
+            await registrationPage.modal.waitFor({ state: 'visible' });
+          });
+        });
+      }
+    );
+  });
 });
