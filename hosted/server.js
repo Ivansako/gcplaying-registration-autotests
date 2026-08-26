@@ -81,7 +81,7 @@ const SUITES = [
   {
     value: 'authenticated-account',
     label: 'Authenticated account — gcplaying0175.com',
-    sub: 'Logs in as a test user: balance, deposit UI, account menu, navigation, game launch',
+    sub: 'Logs in as a test user: header, deposit/withdraw UI, navigation, account menu, profile, password change validation, and one real game spin — desktop only',
     category: 'product',
   },
   {
