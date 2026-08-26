@@ -59,9 +59,9 @@ test.describe('Registration on gcplaying0175.com', () => {
       'Successful registration with valid data',
       { tag: ['@smoke', '@positive'] },
       async ({ page }) => {
-        // Default 45s timeout doesn't leave room for the rate-limit pacing
-        // wait in RegistrationPage.submit() on top of the normal flow.
-        test.setTimeout(75_000);
+        // The rate-limit pacing wait in RegistrationPage.submit() can now
+        // be up to 60s (cross-run throttle) on top of the normal flow.
+        test.setTimeout(130_000);
 
         allure.severity('critical');
         allure.description(
@@ -213,9 +213,9 @@ test.describe('Registration on gcplaying0175.com', () => {
       'Cannot register again with an already used email',
       { tag: ['@negative', '@duplicate'] },
       async ({ page }) => {
-        // This test submits twice — 2x the rate-limit pacing wait from
-        // RegistrationPage.submit() — so it needs even more headroom.
-        test.setTimeout(90_000);
+        // This test submits twice — 2x the (now up to 60s, cross-run
+        // throttled) rate-limit pacing wait from RegistrationPage.submit().
+        test.setTimeout(220_000);
 
         allure.severity('critical');
         allure.description(

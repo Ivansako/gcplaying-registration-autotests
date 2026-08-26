@@ -2,6 +2,7 @@ import { expect, Locator, Page } from '@playwright/test';
 import { attachment, step } from 'allure-js-commons';
 import { ContentType } from 'allure-js-commons';
 import { RegistrationData } from '../utils/test-data';
+import { waitForRegistrationSlot } from '../utils/registrationThrottle';
 
 /**
  * Page Object for the gcplaying0175.com registration form.
@@ -38,15 +39,6 @@ export const PASSWORD_REQUIREMENTS = [
   'At least one lowercase',
   'At least one capital',
 ] as const;
-
-/**
- * The site's own sign-up endpoint (behind Cloudflare) rate-limits (429)
- * bursts of registrations from the same source — hit while iterating on
- * these suites locally. This pause before every real submit() keeps
- * consecutive registrations spaced like a person clicking through the
- * form, not a script hammering it.
- */
-const REGISTRATION_PACING_MS = 12_000;
 
 export class RegistrationPage {
   readonly page: Page;
@@ -263,9 +255,19 @@ export class RegistrationPage {
     });
   }
 
+  /**
+   * The site's own sign-up endpoint (behind Cloudflare) rate-limits (429)
+   * bursts of registrations from the same source — hit this even with an
+   * in-run pacing wait, from separate `npx playwright test` invocations
+   * run close together while debugging. `waitForRegistrationSlot()`
+   * persists the last-registration timestamp to disk, so *every*
+   * invocation waits out the same minimum gap since the last real
+   * registration, anywhere — not just within this one run. See
+   * utils/registrationThrottle.ts.
+   */
   async submit(): Promise<void> {
-    await step('Wait before submitting (rate-limit pacing)', async () => {
-      await this.page.waitForTimeout(REGISTRATION_PACING_MS);
+    await step('Wait before submitting (rate-limit pacing, cross-run)', async () => {
+      await waitForRegistrationSlot();
     });
     await step('Submit the registration form', async () => {
       await this.submitButton.click();

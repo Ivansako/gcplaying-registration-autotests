@@ -53,11 +53,11 @@ test.describe('gcplaying0175.com — full brand test (registration + login)', ()
         `Register a new account and log back in — ${name}`,
         { tag: ['@brand', '@positive'] },
         async ({ page }) => {
-          // The default 45s test timeout doesn't leave enough room once the
-          // rate-limit pacing wait (RegistrationPage.submit()) is added on
-          // top of 2 full auth flows (register + log back in) across 6+
+          // The rate-limit pacing wait in RegistrationPage.submit() can now
+          // be up to 60s (cross-run throttle, see utils/registrationThrottle.ts)
+          // on top of 2 full auth flows (register + log back in) across 6+
           // screenshots.
-          test.setTimeout(90_000);
+          test.setTimeout(150_000);
 
           allure.severity('critical');
           allure.description(
