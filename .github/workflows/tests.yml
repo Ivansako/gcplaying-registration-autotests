@@ -10,6 +10,7 @@ on:
         options:
           - registration
           - brand-gcplaying
+          - authenticated-account
           - game-providers
           - all
       include_form_submitting:
@@ -43,6 +44,7 @@ jobs:
           case "${{ inputs.spec }}" in
             registration) echo "path=tests/registration.spec.ts" >> "$GITHUB_OUTPUT" ;;
             brand-gcplaying) echo "path=tests/brand-gcplaying.spec.ts" >> "$GITHUB_OUTPUT" ;;
+            authenticated-account) echo "path=tests/authenticated-user.spec.ts tests/authenticated-account.spec.ts" >> "$GITHUB_OUTPUT" ;;
             game-providers) echo "path=tests/game-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
           esac
@@ -50,6 +52,8 @@ jobs:
       - name: Run tests
         env:
           BASE_URL: ${{ inputs.base_url }}
+          TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
+          TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
         run: |
           GREP_ARGS=""
           # The brand-gcplaying suite has no submit-toggle concept: its

@@ -79,6 +79,12 @@ const SUITES = [
     category: 'development',
   },
   {
+    value: 'authenticated-account',
+    label: 'Authenticated account — gcplaying0175.com',
+    sub: 'Logs in as a test user: balance, deposit UI, account menu, navigation, game launch',
+    category: 'product',
+  },
+  {
     value: 'game-providers',
     label: 'Game providers',
     sub: 'ferraplay.com — findings ledger, no live browser',
