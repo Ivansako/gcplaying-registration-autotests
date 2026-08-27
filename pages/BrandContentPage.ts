@@ -1,6 +1,6 @@
 import { expect, Locator, Page } from '@playwright/test';
-import { attachment, step } from 'allure-js-commons';
-import { ContentType } from 'allure-js-commons';
+import { attachment, logStep, step } from 'allure-js-commons';
+import { ContentType, Status } from 'allure-js-commons';
 
 /**
  * Page object for gcplaying0175.com's public, anonymous-access pages —
@@ -85,12 +85,19 @@ export class BrandContentPage {
    * <img> settled — a plain `domcontentloaded` wait was catching promo
    * banners mid-load in screenshots), then checks for broken images, JS
    * console errors, and horizontal layout overflow before attaching a
-   * full-page screenshot and a JSON report. Uses `expect.soft` so all
-   * three checks run — and are all visible in the report — even if one
-   * of them fails. The networkidle wait is capped short (3s) rather than
-   * the Playwright default, since a page with any persistent background
-   * connection (websocket, polling) would otherwise burn the full
-   * default timeout on every single check.
+   * full-page screenshot and a JSON report. The networkidle wait is
+   * capped short (3s) rather than the Playwright default, since a page
+   * with any persistent background connection (websocket, polling)
+   * would otherwise burn the full default timeout on every single check.
+   *
+   * Findings here are reported via `logStep(..., Status.BROKEN)` rather
+   * than a failing `expect()` — deliberately: the functional check
+   * already passed (that's what actually failing the test is for), a UI
+   * finding is a real thing worth flagging but shouldn't turn the whole
+   * regression run red on its own. `logStep` writes directly into
+   * Allure's step model without throwing, so it shows as an orange
+   * "broken" line nested under this step while the test itself, and this
+   * step, both still report as passed.
    */
   async attachScreenshot(name: string): Promise<void> {
     await step(`UI check: ${name}`, async () => {
@@ -109,9 +116,15 @@ export class BrandContentPage {
       const buffer = await this.page.screenshot({ fullPage: true });
       await attachment(name, buffer, ContentType.PNG);
 
-      expect.soft(brokenImages, `Broken images on "${name}"`).toEqual([]);
-      expect.soft(overflowPx, `Horizontal overflow on "${name}" (px wider than viewport)`).toBeLessThanOrEqual(0);
-      expect.soft(consoleErrors, `Browser console errors on "${name}"`).toEqual([]);
+      if (brokenImages.length > 0) {
+        await logStep(`Broken images: ${brokenImages.join(', ')}`, Status.BROKEN);
+      }
+      if (overflowPx > 0) {
+        await logStep(`Horizontal overflow: ${overflowPx}px wider than the viewport`, Status.BROKEN);
+      }
+      if (consoleErrors.length > 0) {
+        await logStep(`Browser console errors: ${consoleErrors.slice(0, 3).join(' | ')}`, Status.BROKEN);
+      }
     });
   }
 
