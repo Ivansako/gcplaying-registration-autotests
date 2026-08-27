@@ -113,7 +113,7 @@ export class BrandContentPage {
         JSON.stringify({ brokenImages, overflowPx, consoleErrors }, null, 2),
         ContentType.JSON
       );
-      const buffer = await this.page.screenshot({ fullPage: true });
+      const buffer = await this.page.screenshot({ fullPage: true, timeout: 30_000 });
       await attachment(name, buffer, ContentType.PNG);
 
       if (brokenImages.length > 0) {

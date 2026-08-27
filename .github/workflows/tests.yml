@@ -13,6 +13,13 @@ on:
           - authenticated-account
           - game-providers
           - all
+      browser:
+        description: 'Which browser project to run on'
+        type: choice
+        default: chromium
+        options:
+          - chromium
+          - firefox
       include_form_submitting:
         description: 'Also run tests that submit the form for real (@positive, @duplicate) — creates a real account on the target site'
         type: boolean
@@ -36,14 +43,14 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --with-deps chromium firefox
 
       - name: Determine test path
         id: spec
         run: |
           case "${{ inputs.spec }}" in
             registration) echo "path=tests/registration.spec.ts" >> "$GITHUB_OUTPUT" ;;
-            brand-gcplaying) echo "path=tests/brand-gcplaying.spec.ts tests/brand-content-pages.spec.ts tests/brand-legal-pages.spec.ts tests/brand-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
+            brand-gcplaying) echo "path=tests/brand-gcplaying.spec.ts tests/brand-content-pages.spec.ts tests/brand-legal-pages.spec.ts tests/brand-providers.spec.ts tests/forgot-password.spec.ts" >> "$GITHUB_OUTPUT" ;;
             authenticated-account) echo "path=tests/authenticated-user.spec.ts tests/authenticated-account.spec.ts tests/authenticated-profile.spec.ts" >> "$GITHUB_OUTPUT" ;;
             game-providers) echo "path=tests/game-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
@@ -64,7 +71,7 @@ jobs:
           if [ "${{ inputs.spec }}" != "brand-gcplaying" ] && [ "${{ inputs.include_form_submitting }}" != "true" ]; then
             GREP_ARGS="--grep-invert @positive|@duplicate"
           fi
-          npx playwright test ${{ steps.spec.outputs.path }} --project=chromium --workers=1 $GREP_ARGS
+          npx playwright test ${{ steps.spec.outputs.path }} --project=${{ inputs.browser }} --workers=1 $GREP_ARGS
         continue-on-error: true
         id: run_tests
 

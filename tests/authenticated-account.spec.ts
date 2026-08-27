@@ -136,27 +136,41 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
     }
   });
 
-  test('Launching a game reaches a playable state', { tag: ['@auth'] }, async ({ page }) => {
-    // Game launch + the UI check's networkidle wait (a live game iframe
-    // rarely goes idle, so it reliably eats the full 3s cap).
-    test.setTimeout(60_000);
+  test('5 games reach a playable state', { tag: ['@auth'] }, async ({ page }) => {
+    // 5 game launches, each with an 8s fixed load wait + a possible 5s
+    // CONTINUE-button wait + the UI check's networkidle wait (a live game
+    // iframe rarely goes idle, so it reliably eats the full 3s cap) —
+    // confirmed live 2026-08-27 that 150s wasn't enough headroom.
+    test.setTimeout(240_000);
 
     allure.severity('normal');
     allure.description(
-      "Launches a game from the lobby as the logged-in test user and confirms it reaches a playable " +
-        "(canvas-rendered) state. Does not drive the game's own bet/spin controls — see file header comment."
+      'Discovers 5 games live from the lobby as the logged-in test user and confirms each reaches a ' +
+        "playable (canvas-rendered) state. Does not drive any game's own bet/spin controls — see file " +
+        'header comment (a real spin on one specific pre-confirmed game is covered separately below).'
     );
 
     const registrationPage = new RegistrationPage(page);
     const accountPage = new AccountPage(page);
     await loginAsTestUser(registrationPage);
 
-    await test.step('Launch a game and verify it loads', async () => {
-      const href = await accountPage.launchFirstGame();
-      allure.parameter('Game', href);
-      await accountPage.expectGameReachedPlayableState();
-      await accountPage.attachScreenshot('Game — playable state reached');
+    const games = await test.step('Discover game links', async () => {
+      const found = await accountPage.getGameLinks(5);
+      allure.parameter('Discovered games', found.map((g) => g.name).join(', '));
+      expect(found.length).toBeGreaterThan(0);
+      return found;
     });
+
+    for (const game of games) {
+      await test.step(`Game: ${game.name}`, async () => {
+        await page.goto('/');
+        await page.waitForLoadState('domcontentloaded');
+        await accountPage.dismissPromoPopupIfPresent();
+        await accountPage.launchGame(game.href);
+        await accountPage.expectGameReachedPlayableState();
+        await accountPage.attachScreenshot(`Game — ${game.name} — playable state`);
+      });
+    }
   });
 
   // Own describe: pins the viewport the spin's click coordinates were

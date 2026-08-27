@@ -191,7 +191,7 @@ export class AccountPage {
         JSON.stringify({ brokenImages, overflowPx, consoleErrors }, null, 2),
         ContentType.JSON
       );
-      const buffer = await this.page.screenshot({ fullPage: true });
+      const buffer = await this.page.screenshot({ fullPage: true, timeout: 30_000 });
       await attachment(name, buffer, ContentType.PNG);
 
       if (brokenImages.length > 0) {
@@ -475,17 +475,38 @@ export class AccountPage {
   }
 
   /**
-   * Launches the first game link found on the current page (e.g. the
-   * lobby's Top Games list) and returns its href for reporting.
+   * Reads game links from the current page (e.g. the lobby's Top Games
+   * list, ~160 links confirmed live 2026-08-27) and returns the first
+   * `limit` — discovery-driven rather than hardcoded, same idea as
+   * `BrandContentPage.getProviderLinks()`. The link's own text is the
+   * game's display name (confirmed live — not the "Play" overlay button's
+   * accessible name, which is identical across every game).
    */
-  async launchFirstGame(): Promise<string> {
-    return step('Launch a game', async () => {
-      const gameLink = this.page.locator('a[href*="/game/real/"]').first();
-      const href = (await gameLink.getAttribute('href')) ?? '';
-      await gameLink.click();
+  async getGameLinks(limit: number): Promise<Array<{ name: string; href: string }>> {
+    const links = this.page.locator('a[href*="/game/real/"]');
+    const count = await links.count();
+    const seen = new Set<string>();
+    const results: Array<{ name: string; href: string }> = [];
+    for (let i = 0; i < count && results.length < limit; i++) {
+      const link = links.nth(i);
+      const href = await link.getAttribute('href');
+      if (href && !seen.has(href)) {
+        seen.add(href);
+        const name = (await link.textContent())?.trim() || href;
+        results.push({ name, href });
+      }
+    }
+    return results;
+  }
+
+  /**
+   * Launches a game by href (from `getGameLinks()`).
+   */
+  async launchGame(href: string): Promise<void> {
+    await step(`Launch game: ${href}`, async () => {
+      await this.page.locator(`a[href="${href}"]`).first().click();
       await this.page.waitForTimeout(8_000);
       await this.dismissPromoPopupIfPresent();
-      return href;
     });
   }
 

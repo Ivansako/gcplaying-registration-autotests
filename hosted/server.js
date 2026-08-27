@@ -281,6 +281,27 @@ function html() {
   .suite-card input { margin-right: .5rem; accent-color: var(--purple); }
   .suite-card__title { font-weight: 600; }
   .suite-card__sub { display: block; color: var(--muted); font-size: .85rem; margin-left: 1.4rem; }
+  .browser-picker {
+    display: flex;
+    gap: .5rem;
+    margin: 1rem 0 .5rem;
+  }
+  .browser-pill {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: .4rem;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    padding: .55rem .6rem;
+    cursor: pointer;
+    font-size: .85rem;
+    font-weight: 500;
+    transition: border-color .15s, background .15s;
+  }
+  .browser-pill:has(input:checked) { border-color: var(--purple); background: rgba(139, 92, 246, .1); }
+  .browser-pill input { accent-color: var(--purple); margin: 0; }
   button#run-button {
     width: 100%;
     padding: .85rem;
@@ -356,6 +377,16 @@ function html() {
     </div>
     ${cards}
     <p class="empty-category" id="empty-category-msg" hidden>No suites in this category yet.</p>
+    <div class="browser-picker">
+      <label class="browser-pill">
+        <input type="radio" name="browser" value="chromium" checked>
+        Chromium
+      </label>
+      <label class="browser-pill">
+        <input type="radio" name="browser" value="firefox">
+        Firefox
+      </label>
+    </div>
     <div style="margin-top: 1rem;">
       <button id="run-button">Run tests</button>
       <div class="run-status" id="run-status"></div>
@@ -379,6 +410,10 @@ const historyEl = document.getElementById('history');
 
 function suiteRadio() {
   return document.querySelector('input[name="suite"]:checked').value;
+}
+
+function browserRadio() {
+  return document.querySelector('input[name="browser"]:checked').value;
 }
 
 // --- Category dropdown (custom, animated — replaces a native <select>) ---
@@ -478,7 +513,7 @@ runButton.addEventListener('click', async () => {
   const res = await fetch('/run', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ suite: suiteRadio() }),
+    body: JSON.stringify({ suite: suiteRadio(), browser: browserRadio() }),
   });
 
   if (!res.ok) {
@@ -595,7 +630,7 @@ async function ghFetch(url, options = {}) {
   return res;
 }
 
-async function dispatchWorkflow(suite) {
+async function dispatchWorkflow(suite, browser) {
   const dispatchedAt = new Date().toISOString();
   const res = await ghFetch(`${GH_API}/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`, {
     method: 'POST',
@@ -603,6 +638,7 @@ async function dispatchWorkflow(suite) {
       ref: REF,
       inputs: {
         spec: suite,
+        browser,
         include_form_submitting: 'false', // never exposed on the public page
       },
     }),
@@ -783,6 +819,7 @@ const server = http.createServer((req, res) => {
         return;
       }
       const suite = SUITES.some((s) => s.value === payload.suite) ? payload.suite : 'brand-gcplaying';
+      const browser = ['chromium', 'firefox'].includes(payload.browser) ? payload.browser : 'chromium';
 
       if (ACCOUNT_CREATING_SUITES.has(suite) && lastRegistrationRunAt) {
         const elapsed = Date.now() - lastRegistrationRunAt;
@@ -796,7 +833,7 @@ const server = http.createServer((req, res) => {
       }
 
       try {
-        const runId = await dispatchWorkflow(suite);
+        const runId = await dispatchWorkflow(suite, browser);
         if (ACCOUNT_CREATING_SUITES.has(suite)) lastRegistrationRunAt = Date.now();
         currentRun = { runId, suite, status: 'queued', reportFetched: false, reportReady: false };
         sendJson(res, 202, { started: true, runId });

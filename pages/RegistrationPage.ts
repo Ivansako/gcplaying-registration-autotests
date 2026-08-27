@@ -78,6 +78,17 @@ export class RegistrationPage {
   readonly loginSubmitButton: Locator;
   readonly loginErrorText: Locator;
 
+  // Forgot-password — confirmed live 2026-08-27. The link lives inside
+  // LoginForm itself; clicking it swaps `signup-popup` out entirely for a
+  // sibling `forgot-password-popup` (not nested inside the old modal) —
+  // so `forgotPasswordPopup` is scoped to `page`, not `this.modal`.
+  readonly forgotPasswordLink: Locator;
+  readonly forgotPasswordPopup: Locator;
+  readonly forgotPasswordEmailInput: Locator;
+  readonly forgotPasswordSubmitButton: Locator;
+  readonly forgotPasswordBackButton: Locator;
+  readonly notificationPopupTitle: Locator;
+
   // Third-party promo popup (e.g. "Golden League is live!") — renders in
   // an injected `iframe.__btgPromoHolder` right after registration/login
   // and covers the header, blocking clicks on Log out / Deposit / etc.
@@ -121,6 +132,13 @@ export class RegistrationPage {
     this.loginPasswordInput = this.loginForm.locator('input[name="password"]');
     this.loginSubmitButton = this.loginForm.locator('button[type="submit"]');
     this.loginErrorText = this.modal.getByTestId('account-error-text');
+
+    this.forgotPasswordLink = this.loginForm.getByTestId('forgot-password-link');
+    this.forgotPasswordPopup = page.getByTestId('forgot-password-popup');
+    this.forgotPasswordEmailInput = this.forgotPasswordPopup.locator('input[name="email"]');
+    this.forgotPasswordSubmitButton = this.forgotPasswordPopup.locator('button[type="submit"]');
+    this.forgotPasswordBackButton = this.forgotPasswordPopup.locator('span', { hasText: 'Back' }).first();
+    this.notificationPopupTitle = page.getByTestId('notification-popup-title');
 
     this.promoPopupCloseButton = page.frameLocator('iframe.__btgPromoHolder').locator('[data-ao-hide-popup="true"]');
   }
@@ -414,7 +432,11 @@ export class RegistrationPage {
         JSON.stringify({ brokenImages, overflowPx, consoleErrors }, null, 2),
         ContentType.JSON
       );
-      const buffer = await this.page.screenshot({ fullPage: true });
+      // Explicit timeout (default actionTimeout of 15s isn't always enough)
+      // — confirmed live 2026-08-27: a full-page screenshot with a modal
+      // open over a very long homepage occasionally needs longer to
+      // stabilize before Playwright will snap it.
+      const buffer = await this.page.screenshot({ fullPage: true, timeout: 30_000 });
       await attachment(name, buffer, ContentType.PNG);
 
       if (brokenImages.length > 0) {
@@ -467,6 +489,58 @@ export class RegistrationPage {
     await step('Verify the "Invalid Login or Password" error is shown', async () => {
       await expect(this.loginErrorText).toBeVisible();
       await expect(this.loginErrorText).toHaveText('Invalid Login or Password');
+    });
+  }
+
+  async openForgotPassword(): Promise<void> {
+    await step('Open the forgot-password form', async () => {
+      await this.openLoginForm();
+      await this.forgotPasswordLink.click();
+      await expect(this.forgotPasswordPopup).toBeVisible();
+    });
+  }
+
+  async requestPasswordReset(email: string): Promise<void> {
+    await step(`Request a password reset for: ${email}`, async () => {
+      await this.forgotPasswordEmailInput.fill(email);
+      await this.forgotPasswordSubmitButton.click();
+    });
+  }
+
+  /**
+   * Confirms live 2026-08-27: submitting any well-formed but unregistered
+   * email shows this exact error — not just malformed input. Worth noting
+   * as a mild account-enumeration side-channel (a registered email gets a
+   * different, "check your email" response — see
+   * `expectPasswordResetSuccess()`), but not something to build a failing
+   * assertion around here.
+   */
+  async expectPasswordResetError(): Promise<void> {
+    await step('Verify the "Please provide valid email" error is shown', async () => {
+      await expect(this.notificationPopupTitle).toBeVisible();
+      await expect(this.notificationPopupTitle).toHaveText('Please provide valid email');
+    });
+  }
+
+  /**
+   * Confirms the reset email was actually sent — safe to submit for real
+   * (unlike Change Password): this only sends an email with a reset link,
+   * it never completes a reset, so the live account's password never
+   * changes unless that link is also opened and completed, which this
+   * suite never does.
+   */
+  async expectPasswordResetSuccess(email: string): Promise<void> {
+    await step('Verify the reset-email confirmation is shown', async () => {
+      await expect(this.notificationPopupTitle).toBeVisible();
+      await expect(this.notificationPopupTitle).toHaveText('Success');
+      await expect(this.forgotPasswordPopup).toContainText(email);
+    });
+  }
+
+  async goBackToSignIn(): Promise<void> {
+    await step('Go back to the sign-up view', async () => {
+      await this.forgotPasswordBackButton.click();
+      await expect(this.modal).toBeVisible();
     });
   }
 }
