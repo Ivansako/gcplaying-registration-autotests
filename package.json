@@ -7,7 +7,7 @@
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
-    "report:generate": "allure generate allure-results --clean -o allure-report",
+    "report:generate": "node scripts/promote-broken-steps.js && allure generate allure-results --clean -o allure-report",
     "report:open": "allure open allure-report",
     "report": "npm run report:generate && npm run report:open",
     "ui": "node scripts/test-runner-server.js"
