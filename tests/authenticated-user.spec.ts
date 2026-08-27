@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test } from '../utils/testWithIssueAnalysis';
 import { allure } from 'allure-playwright';
 import { RegistrationPage } from '../pages/RegistrationPage';
 

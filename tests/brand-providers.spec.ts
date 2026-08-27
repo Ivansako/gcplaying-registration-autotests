@@ -1,4 +1,5 @@
-import { test, expect, devices } from '@playwright/test';
+import { devices } from '@playwright/test';
+import { test, expect } from '../utils/testWithIssueAnalysis';
 import { allure } from 'allure-playwright';
 import { BrandContentPage } from '../pages/BrandContentPage';
 

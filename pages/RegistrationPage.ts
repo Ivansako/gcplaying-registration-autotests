@@ -1,6 +1,7 @@
 import { expect, Locator, Page } from '@playwright/test';
-import { attachment, descriptionHtml, logStep, step } from 'allure-js-commons';
+import { attachment, logStep, step } from 'allure-js-commons';
 import { ContentType, Status } from 'allure-js-commons';
+import { formatConsoleErrors, recordIssue } from '../utils/issueTracker';
 import { RegistrationData } from '../utils/test-data';
 import { waitForRegistrationSlot } from '../utils/registrationThrottle';
 
@@ -439,7 +440,9 @@ export class RegistrationPage {
     }
     return {
       severity: 'Needs triage',
-      rootCause: `The browser logged a genuine JavaScript error during this page's lifecycle: ${errors.slice(0, 3).join(' | ')}. Could be a real functional bug, third-party script noise, or something not yet catalogued.`,
+      rootCause:
+        "The browser logged a genuine JavaScript error during this page's lifecycle. Could be a real functional " +
+        `bug, third-party script noise, or something not yet catalogued.<br><br><strong>Console errors:</strong><br>${formatConsoleErrors(errors)}`,
       whatToCheck:
         "Open browser DevTools console on this exact page/flow, reproduce, and check the stack trace's " +
         'originating file/line. If it recurs across many tests, consider whether it should be filtered as noise ' +
@@ -447,29 +450,17 @@ export class RegistrationPage {
     };
   }
 
-  // Accumulates every finding this test instance has hit so far, so the
-  // full picture stays visible on the Overview tab's Description even
-  // after a 2nd/3rd finding overwrites it — see `flagIssue()`.
-  private issuesFound: string[] = [];
-
   /**
-   * Surfaces a finding directly in the test's Description field (visible
-   * on the Overview tab, no drilling into steps/attachments/History runs
-   * required) — added 2026-08-27 after the buried-attachment-only
-   * approach (still used alongside this for granular per-step archival
-   * context) proved too hard to find. Appends rather than overwrites, so
-   * multiple findings in one test all stay visible at once.
+   * Records a finding into the shared issue tracker (see
+   * `utils/issueTracker.ts`) — surfaced directly in the test's
+   * Description field (visible on the Overview tab, no drilling into
+   * steps/attachments/History runs required) by the `testWithIssueAnalysis`
+   * fixture once the test finishes. Centralized rather than accumulated
+   * per page-object-instance so findings from multiple page objects used
+   * in the same test don't overwrite each other.
    */
   private async flagIssue(where: string, opts: { severity: string; rootCause: string; whatToCheck: string }): Promise<void> {
-    this.issuesFound.push(
-      `<div style="margin: 0 0 14px; padding: 10px 14px; border-left: 4px solid #e2a33a; background: #fff8ec; font-family: sans-serif; font-size: 13px; line-height: 1.6;">
-        <p style="margin: 0 0 6px; font-weight: 600;">⚠️ ${where}</p>
-        <p style="margin: 0 0 4px;"><strong>Severity:</strong> ${opts.severity}</p>
-        <p style="margin: 0 0 4px;"><strong>Root cause:</strong> ${opts.rootCause}</p>
-        <p style="margin: 0;"><strong>What to check manually:</strong> ${opts.whatToCheck}</p>
-      </div>`
-    );
-    await descriptionHtml(`<div style="font-family: sans-serif;">${this.issuesFound.join('')}</div>`);
+    recordIssue({ where, ...opts });
   }
 
   /**
