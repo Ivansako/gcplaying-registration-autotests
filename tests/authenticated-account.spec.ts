@@ -79,6 +79,82 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
     });
   });
 
+  test('Deposit amount field validation', { tag: ['@auth'] }, async ({ page }) => {
+    // 3 checks, each with a UI-check screenshot.
+    test.setTimeout(90_000);
+
+    allure.severity('normal');
+    allure.description(
+      'Confirms the Deposit amount field ($100-$2500, confirmed live) rejects non-numeric input and ' +
+        'shows FE errors for below-min/above-max values. Never clicks Deposit.'
+    );
+
+    const registrationPage = new RegistrationPage(page);
+    const accountPage = new AccountPage(page);
+    await loginAsTestUser(registrationPage);
+
+    await accountPage.openDepositModal();
+
+    await test.step('Non-numeric input is rejected', async () => {
+      await accountPage.expectAmountFieldRejectsNonNumeric();
+      await accountPage.attachScreenshot('Deposit amount — non-numeric rejected');
+    });
+
+    await test.step('Below-min shows an error', async () => {
+      await accountPage.expectAmountFieldError('50', 'Minimum amount is 100 $');
+      await accountPage.attachScreenshot('Deposit amount — below minimum');
+    });
+
+    // Reopen the modal before the next check — see the equivalent
+    // comment in authenticated-profile.spec.ts's Withdraw amount test:
+    // a real site quirk leaves the error message stuck on the first
+    // one shown unless the field gets a fresh mount.
+    await accountPage.closeDepositModal();
+    await accountPage.openDepositModal();
+
+    await test.step('Above-max shows an error', async () => {
+      await accountPage.expectAmountFieldError('99999', 'Maximum amount is 2500 $');
+      await accountPage.attachScreenshot('Deposit amount — above maximum');
+    });
+
+    await accountPage.closeDepositModal();
+  });
+
+  test('Favorites toggle adds and removes a game', { tag: ['@auth'] }, async ({ page }) => {
+    test.setTimeout(75_000);
+
+    allure.severity('minor');
+    allure.description(
+      'Toggles favorite status on a known game (Fortune of Olympus), confirms it appears under the ' +
+        'Favorites nav tab, then toggles it back off — fully reversible, no lasting change to the account.'
+    );
+
+    const registrationPage = new RegistrationPage(page);
+    const accountPage = new AccountPage(page);
+    await loginAsTestUser(registrationPage);
+
+    const gameHref = '/game/real/45898'; // Fortune of Olympus — confirmed live 2026-08-27
+
+    await test.step('Ensure starting state is not-favorited', async () => {
+      // Not assumed — a prior run could have left this favorited.
+      if (await accountPage.isFavorited(gameHref)) {
+        await accountPage.toggleFavorite(gameHref);
+      }
+    });
+
+    await test.step('Add to favorites', async () => {
+      await accountPage.toggleFavorite(gameHref);
+      await page.goto('/?tab=Favorites');
+      await page.waitForLoadState('domcontentloaded');
+      await expect(page.locator(`a[href="${gameHref}"]`)).toBeVisible();
+      await accountPage.attachScreenshot('Favorites — game added');
+    });
+
+    await test.step('Remove from favorites', async () => {
+      await accountPage.toggleFavorite(gameHref);
+    });
+  });
+
   test('Main navigation sections load for a logged-in user', { tag: ['@auth'] }, async ({ page }) => {
     // Default 45s doesn't leave room for 6 section visits + screenshots,
     // each now waiting out a 3s networkidle cap (persistent websocket).

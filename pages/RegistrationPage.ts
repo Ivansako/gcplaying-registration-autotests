@@ -111,7 +111,10 @@ export class RegistrationPage {
     // that doesn't depend on the generated hash (*_hash*).
     this.registerButton = page.getByRole('button', { name: 'Register' });
     this.modal = page.getByTestId('signup-popup');
-    this.closeButton = this.modal.getByTestId('close-button');
+    // `getByTestId('close-button')` itself resolves to a 0×0 wrapper —
+    // confirmed live 2026-08-27 — the actual clickable target is its
+    // icon-button child.
+    this.closeButton = this.modal.getByTestId('close-button').locator('div[class*="IconButton_iconButton"]');
     this.signUpTab = this.modal.locator('[class*="AuthTabs_container_wrapper"]', { hasText: 'Sign up' });
     this.logInTab = this.modal.locator('[class*="AuthTabs_container_wrapper"]', { hasText: 'Log In' });
 
@@ -121,7 +124,9 @@ export class RegistrationPage {
     this.phoneInput = this.modal.locator('input[name="phone"]');
     this.emailInput = this.modal.locator('input[name="email"]');
     this.passwordInput = this.modal.locator('input[name="password"]');
-    this.passwordVisibilityToggle = this.modal.locator('input[name="password"] ~ button, input[name="password"] + button');
+    // Confirmed live 2026-08-27: the toggle is a <div>, not a <button> —
+    // the old selector matched zero elements.
+    this.passwordVisibilityToggle = this.modal.locator('input[name="password"] ~ div[class*="Input_input__button_password"]');
     this.passwordHints = this.modal.locator('[class*="WizPasswordHints_text"]');
     this.submitButton = this.modal.locator('[class*="SignUpForm_form"] button[class*="WizButton_primary-contained"]');
     this.googleSignUpButton = this.modal.getByRole('button', { name: /sign up with google/i });

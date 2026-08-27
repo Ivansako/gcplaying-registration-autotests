@@ -1,4 +1,4 @@
-import { test } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 import { allure } from 'allure-playwright';
 import { PASSWORD_REQUIREMENTS, RegistrationPage } from '../pages/RegistrationPage';
 import {
@@ -248,5 +248,49 @@ test.describe('Registration on gcplaying0175.com', () => {
         });
       }
     );
+  });
+
+  test('Password visibility toggle switches the field between hidden and visible', { tag: ['@positive'] }, async ({ page }) => {
+    allure.severity('minor');
+    allure.description('The eye icon next to the password field toggles its type between "password" and "text", on both the Sign Up and Log In forms.');
+
+    const registrationPage = new RegistrationPage(page);
+
+    await test.step('Sign Up form', async () => {
+      await registrationPage.openRegistrationForm();
+      await registrationPage.passwordInput.fill('SomePass1!');
+      await expect(registrationPage.passwordInput).toHaveAttribute('type', 'password');
+      await registrationPage.passwordVisibilityToggle.click();
+      await expect(registrationPage.passwordInput).toHaveAttribute('type', 'text');
+      await registrationPage.passwordVisibilityToggle.click();
+      await expect(registrationPage.passwordInput).toHaveAttribute('type', 'password');
+    });
+
+    await test.step('Log In form', async () => {
+      await registrationPage.logInTab.click();
+      await registrationPage.loginPasswordInput.fill('SomePass1!');
+      await expect(registrationPage.loginPasswordInput).toHaveAttribute('type', 'password');
+      await registrationPage.passwordVisibilityToggle.click();
+      await expect(registrationPage.loginPasswordInput).toHaveAttribute('type', 'text');
+    });
+  });
+
+  test('X button closes the auth modal from both Sign Up and Log In views', { tag: ['@positive'] }, async ({ page }) => {
+    allure.severity('minor');
+    allure.description('Confirms the X button closes the whole modal (not just switches tabs) from both the Sign Up and Log In views.');
+
+    const registrationPage = new RegistrationPage(page);
+
+    await test.step('From Sign Up', async () => {
+      await registrationPage.openRegistrationForm();
+      await registrationPage.closeButton.click();
+      await expect(registrationPage.modal).toBeHidden();
+    });
+
+    await test.step('From Log In', async () => {
+      await registrationPage.openLoginForm();
+      await registrationPage.closeButton.click();
+      await expect(registrationPage.modal).toBeHidden();
+    });
   });
 });

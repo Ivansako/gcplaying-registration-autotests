@@ -147,6 +147,85 @@ export class BrandContentPage {
   }
 
   /**
+   * Opens the site search (magnifying-glass icon, present at both
+   * desktop and mobile widths despite its `Navbar_mobileIcon` class
+   * name), searches `query`, and returns the result game hrefs.
+   * Confirmed live 2026-08-27: search is games-only — a provider name
+   * like "Evolution" returns games whose *titles* contain it, not a
+   * distinct Provider/Category result type.
+   */
+  async searchGames(query: string): Promise<string[]> {
+    return step(`Search for "${query}"`, async () => {
+      await this.page.locator('[class*="Navbar_mobileIcon"]').first().click();
+      const input = this.page.locator('input#searchGames');
+      await input.waitFor();
+      // A short settle wait before typing — confirmed live 2026-08-27
+      // that typing immediately after the input becomes visible can
+      // drop early keystrokes mid-transition, silently truncating the
+      // query into one that matches nothing.
+      await this.page.waitForTimeout(500);
+      // pressSequentially + Enter, not fill() — confirmed live
+      // 2026-08-27 (under this project's configured ru-RU locale):
+      // without Enter, only a "N results" count label renders
+      // (`SearchGamesInput_containerResults`), not the actual results
+      // panel with clickable game links.
+      await input.pressSequentially(query, { delay: 50 });
+      await input.press('Enter');
+      // Filtered by visible text matching `query`, not a container class —
+      // confirmed live 2026-08-27 that the results panel's wrapping class
+      // isn't stable (varies with a Games/Providers/Categories tab bar
+      // that isn't always present), while every game card's own text
+      // reliably contains its title regardless of which panel it's in.
+      const results = this.page.locator('a[class*="GameCard_gameLink"]', { hasText: query });
+      await expect(results.first()).toBeVisible({ timeout: 15_000 });
+      const hrefs = await results.evaluateAll((links) => links.map((l) => l.getAttribute('href')));
+      return [...new Set(hrefs.filter((href): href is string => !!href))];
+    });
+  }
+
+  /**
+   * Opens the side menu — desktop uses a permanent burger icon, mobile
+   * (viewport width < 768) uses the bottom-nav "Menu" button instead;
+   * both open the identical `SideMenu_menuItems` panel. Confirmed live
+   * 2026-08-27.
+   */
+  async openSideMenu(): Promise<void> {
+    await step('Open the side menu', async () => {
+      const width = this.page.viewportSize()?.width ?? 1280;
+      const trigger =
+        width < 768
+          ? this.page.locator('button[data-action="menu"]')
+          : this.page.locator('[class*="Burger_container_block_openCloseButton"]');
+      await trigger.click();
+      await this.page.locator('nav[class*="SideMenu_menuItems"]').waitFor();
+    });
+  }
+
+  /**
+   * Switches the site language via the selector inside the side menu.
+   * Confirmed live 2026-08-27: switching to Arabic sets
+   * `<html lang="ar" dir="rtl">` and translates visible text.
+   */
+  async switchLanguage(label: 'English' | 'العربية'): Promise<void> {
+    await step(`Switch language to ${label}`, async () => {
+      await this.openSideMenu();
+      await this.page.locator('div[class*="SelectLanguage_input"]').click();
+      await this.page.locator('[class*="SelectLanguage_option"]', { hasText: label }).click();
+      await this.page.waitForLoadState('domcontentloaded');
+    });
+  }
+
+  /**
+   * Footer payment-method logos. Scoped to `footer` specifically — a
+   * visually similar provider-logo grid (`Provider_gridImage`) exists
+   * elsewhere on the page with an easily-confused class prefix.
+   */
+  async getFooterPaymentMethods(): Promise<string[]> {
+    const images = this.page.locator('footer [class*="Cashiers_gridImage"]');
+    return images.evaluateAll((imgs) => imgs.map((img) => (img as HTMLImageElement).alt));
+  }
+
+  /**
    * Reads provider links from the current page (call after visiting the
    * homepage) and returns the first `limit` — discovery-driven rather
    * than a hardcoded provider list, same idea as

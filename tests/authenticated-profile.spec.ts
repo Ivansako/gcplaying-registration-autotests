@@ -64,6 +64,50 @@ test.describe('gcplaying0175.com — cashier, password, and profile checks', () 
     });
   });
 
+  test('Withdraw amount field validation', { tag: ['@auth'] }, async ({ page }) => {
+    // 3 checks, each with a UI-check screenshot.
+    test.setTimeout(90_000);
+
+    allure.severity('normal');
+    allure.description(
+      'Confirms the Withdraw amount field ($100-$5000, confirmed live) rejects non-numeric input and ' +
+        'shows FE errors for below-min/above-max values. Never clicks Withdraw.'
+    );
+
+    const registrationPage = new RegistrationPage(page);
+    const accountPage = new AccountPage(page);
+    await loginAsTestUser(registrationPage);
+
+    await accountPage.openWithdrawModal();
+
+    await test.step('Non-numeric input is rejected', async () => {
+      await accountPage.expectAmountFieldRejectsNonNumeric();
+      await accountPage.attachScreenshot('Withdraw amount — non-numeric rejected');
+    });
+
+    await test.step('Below-min shows an error', async () => {
+      await accountPage.expectAmountFieldError('50', 'Minimum amount is 100 $');
+      await accountPage.attachScreenshot('Withdraw amount — below minimum');
+    });
+
+    // Reopen the modal before the next check — confirmed live 2026-08-27:
+    // the error message doesn't re-validate after an error is already
+    // showing (a real site quirk — typing a valid-range value afterward
+    // still shows the stale first error), so a below-min check
+    // immediately followed by an above-max check on the same field
+    // instance leaves the "Minimum" message stuck instead of switching
+    // to "Maximum". A fresh modal avoids it.
+    await accountPage.closeWithdrawModal();
+    await accountPage.openWithdrawModal();
+
+    await test.step('Above-max shows an error', async () => {
+      await accountPage.expectAmountFieldError('99999', 'Maximum amount is 5000 $');
+      await accountPage.attachScreenshot('Withdraw amount — above maximum');
+    });
+
+    await accountPage.closeWithdrawModal();
+  });
+
   test('Change password validation', { tag: ['@auth'] }, async ({ page }) => {
     // 3 cases, each with a UI check waiting out a 3s networkidle cap.
     test.setTimeout(75_000);
@@ -115,6 +159,75 @@ test.describe('gcplaying0175.com — cashier, password, and profile checks', () 
       expect(info.email).toBe(TEST_USER_EMAIL);
       expect(info.username).not.toBe('');
       expect(info.phone).not.toBe('');
+    });
+  });
+
+  // Personal Details — confirmed live 2026-08-27, from the Jira/Xray
+  // "Personal Details" manual test folder. First Name/Last Name/City/DOB
+  // are permanently locked on this account after an earlier save (see
+  // project memory), so nothing here attempts to actually edit+save any
+  // field — only the edit-mode toggle itself, the DOB month-picker
+  // widget, the Communication Language options' presence, and a
+  // confirmed real bug (see below).
+  test.describe('Personal Details', () => {
+    test('Edit mode opens and Cancel reverts it', { tag: ['@auth'] }, async ({ page }) => {
+      allure.severity('minor');
+      allure.description('Confirms the edit pencil opens edit mode (Cancel/Save icons appear) and Cancel closes it again.');
+
+      const registrationPage = new RegistrationPage(page);
+      const accountPage = new AccountPage(page);
+      await loginAsTestUser(registrationPage);
+
+      await test.step('Open and cancel edit mode', async () => {
+        await accountPage.openProfileEdit();
+        await accountPage.attachScreenshot('Personal Details — edit mode open');
+        await accountPage.cancelProfileEdit();
+      });
+    });
+
+    // No DOB month-picker test: confirmed live 2026-08-27 that on this
+    // account the whole react-calendar DOB widget is disabled (First
+    // Name/Last Name/City/DOB are permanently locked from an earlier
+    // save — see AccountPage.ts's Personal Details locators comment),
+    // so its month-navigation control never renders. Would need a
+    // fresh, never-saved account to exercise.
+
+    test('Communication Language options are present', { tag: ['@auth'] }, async ({ page }) => {
+      allure.severity('minor');
+      allure.description('Confirms both Communication Language radio options render with the expected labels. Never actually switched here — see the site-wide language switcher test for that.');
+
+      const registrationPage = new RegistrationPage(page);
+      const accountPage = new AccountPage(page);
+      await loginAsTestUser(registrationPage);
+
+      await test.step('Open edit mode and verify language options', async () => {
+        await accountPage.openProfileEdit();
+        await expect(accountPage.languageEnglishRadio).toBeVisible();
+        await expect(accountPage.languageArabicRadio).toBeVisible();
+        await accountPage.attachScreenshot('Personal Details — Communication Language');
+      });
+    });
+
+    test('Saving with no changes shows a real bug (untranslated "nothing.to.update")', { tag: ['@auth'] }, async ({ page }) => {
+      allure.severity('minor');
+      allure.description(
+        'Confirmed real defect (2026-08-27): saving Personal Details with no changes shows a literal ' +
+          'untranslated i18n key instead of a real message. Documented as a genuine failing check, not ' +
+          'silenced — same treatment as this project\'s other confirmed-but-unfixed defects.'
+      );
+
+      const registrationPage = new RegistrationPage(page);
+      const accountPage = new AccountPage(page);
+      await loginAsTestUser(registrationPage);
+
+      await test.step('Save with no changes and check the notification text', async () => {
+        await accountPage.openProfileEdit();
+        const toastText = await accountPage.saveProfileEditWithNoChanges();
+        allure.parameter('Toast text', toastText);
+        await accountPage.attachScreenshot('Personal Details — save with no changes');
+
+        expect(toastText).not.toBe('nothing.to.update');
+      });
     });
   });
 

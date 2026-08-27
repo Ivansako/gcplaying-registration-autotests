@@ -85,6 +85,24 @@ export class AccountPage {
   readonly streetInput: Locator;
   readonly zipCodeInput: Locator;
 
+  // Personal Details edit flow — confirmed live 2026-08-27. No DOB
+  // month-picker locator: on this account, First Name/Last Name/City/DOB
+  // are already permanently locked (disabled even in edit mode) from an
+  // earlier save — see [[project-test-account-locked-fields]] — which
+  // also disables the whole react-calendar DOB widget, so it can't be
+  // exercised without a fresh, never-saved account.
+  readonly profileEditPencil: Locator;
+  readonly profileEditPanelIcons: Locator;
+  readonly languageEnglishRadio: Locator;
+  readonly languageArabicRadio: Locator;
+  readonly notificationPopupTitle: Locator;
+
+  // Deposit/Withdraw amount field — confirmed live 2026-08-27: both
+  // modals share the same `#amount` id/name/error-wrapper class, so
+  // these locators are only meaningful once the relevant modal is open.
+  readonly amountInput: Locator;
+  readonly amountErrorText: Locator;
+
   private consoleErrors: string[] = [];
 
   constructor(page: Page) {
@@ -121,6 +139,20 @@ export class AccountPage {
     this.cityInput = page.locator('input[name="city"]');
     this.streetInput = page.locator('input[name="street"]');
     this.zipCodeInput = page.locator('input[name="zipCode"]');
+
+    this.profileEditPencil = page.locator(
+      '.ProfileInformation_container__EDDMq .Label_labelContainer__eqfWw .IconButton_iconButton__b12YD'
+    );
+    this.profileEditPanelIcons = page.locator('.ProfileInformation_editPanel__6kkbr .IconButton_iconButton__b12YD');
+    // Scoped to the wrapping <label>, not the native radio input — the
+    // input itself is visually hidden (a custom-styled radio), confirmed
+    // live 2026-08-27.
+    this.languageEnglishRadio = page.locator('label', { hasText: 'English' }).first();
+    this.languageArabicRadio = page.locator('label', { hasText: 'العربية' }).first();
+    this.notificationPopupTitle = page.getByTestId('notification-popup-title');
+
+    this.amountInput = page.locator('input#amount[name="amount"]');
+    this.amountErrorText = page.locator('[class*="CashierInputChooseAmount_errorWrapper"]');
   }
 
   /**
@@ -269,6 +301,48 @@ export class AccountPage {
   }
 
   /**
+   * Confirms the amount field (shared by Deposit and Withdraw — whichever
+   * modal is currently open) rejects non-numeric input outright: letters
+   * and symbols don't register as keystrokes at all, rather than being
+   * accepted and flagged with an error. Confirmed live 2026-08-27.
+   *
+   * Asserts the final value contains none of the injected characters,
+   * rather than comparing to a snapshot taken before typing — the field
+   * has its own async default-value behavior (confirmed live: it can
+   * revert to "100" independently of typing, on a timing that raced a
+   * before/after equality check), so "no garbage characters made it in"
+   * is the actual, timing-independent invariant worth checking.
+   */
+  async expectAmountFieldRejectsNonNumeric(): Promise<void> {
+    await step('Verify the amount field rejects non-numeric input', async () => {
+      await this.amountInput.pressSequentially('abc!@#', { delay: 30 });
+      await expect(this.amountInput).not.toHaveValue(/[a-zA-Z!@#]/);
+    });
+  }
+
+  /**
+   * Types `value` into the amount field and confirms the given FE error
+   * text appears — used for below-min/above-max checks on both Deposit
+   * ($100-$2500, confirmed live) and Withdraw ($100-$5000, confirmed
+   * live) modals. Never touches the modal's submit button.
+   *
+   * `toContainText` (substring, whitespace-normalized), not `toHaveText`
+   * — confirmed live 2026-08-27 the error text carries a trailing space
+   * inconsistently. `pressSequentially`, not `fill()` — confirmed live
+   * the validation doesn't reliably re-run off a `fill()`-set value (it
+   * can leave the error text stale from before, or blank), only off real
+   * per-keystroke input events.
+   */
+  async expectAmountFieldError(value: string, expectedError: string | RegExp): Promise<void> {
+    await step(`Verify the amount field shows an error for "${value}"`, async () => {
+      await this.amountInput.click({ clickCount: 3 });
+      await this.page.keyboard.press('Backspace');
+      await this.amountInput.pressSequentially(value, { delay: 50 });
+      await expect(this.amountErrorText).toContainText(expectedError, { timeout: 10_000 });
+    });
+  }
+
+  /**
    * Opens the Change Password modal from the Profile Info tab. Its
    * "Update Password" button is only ever checked for staying disabled
    * (see `expectUpdatePasswordDisabled()`) — a real password change would
@@ -368,13 +442,92 @@ export class AccountPage {
     });
   }
 
+  /**
+   * Opens Personal Details edit mode via the pencil icon and confirms the
+   * edit panel (Cancel/Save icon pair) appears. Does NOT assert which
+   * fields become enabled — confirmed live 2026-08-27 that First
+   * Name/Last Name/City/DOB permanently lock after their first save (see
+   * `[[project-test-account-locked-fields]]` in project memory), so the
+   * exact enabled/disabled set is account-history-dependent, not a fixed
+   * site behavior worth pinning down here.
+   */
+  async openProfileEdit(): Promise<void> {
+    await step('Open Personal Details edit mode', async () => {
+      await this.page.goto('/account/balance');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.page.waitForTimeout(2_000);
+      await this.dismissPromoPopupIfPresent();
+      await this.profileEditPencil.click();
+      await expect(this.profileEditPanelIcons).toHaveCount(2);
+    });
+  }
+
+  /**
+   * Cancel icon (index 0 of the edit panel's two icons — no other
+   * distinguishing selector, same order-based pattern as the Save icon
+   * below).
+   */
+  async cancelProfileEdit(): Promise<void> {
+    await step('Cancel Personal Details edit mode', async () => {
+      await this.profileEditPanelIcons.nth(0).click();
+      await expect(this.profileEditPanelIcons).toHaveCount(0);
+    });
+  }
+
+  /**
+   * Save icon (index 1 of the edit panel's two icons) clicked with no
+   * field changes made. Confirmed live 2026-08-27: this is a real,
+   * confirmed bug — the resulting toast shows a literal untranslated
+   * i18n key, "nothing.to.update", instead of a real message. Safe to
+   * trigger for real since no field value changes.
+   */
+  async saveProfileEditWithNoChanges(): Promise<string> {
+    return step('Save with no changes and read the resulting notification', async () => {
+      await this.profileEditPanelIcons.nth(1).click();
+      await expect(this.notificationPopupTitle).toBeVisible();
+      return (await this.notificationPopupTitle.textContent()) ?? '';
+    });
+  }
+
+  /**
+   * Toggles a game's favorite state by its `/game/real/{id}` href. The
+   * toggle button is nested *inside* the game's own `<a>` link (not a
+   * sibling at the card-wrapper level) — confirmed live 2026-08-27. The
+   * reliable state signal is the button's aria-label ("Add to
+   * favorites" ↔ "Remove from favorites"), not a class change. `.first()`
+   * since the same game can appear in more than one homepage section —
+   * favoriting is a global per-game state, so any instance's button
+   * works.
+   */
+  async toggleFavorite(gameHref: string): Promise<void> {
+    await step(`Toggle favorite: ${gameHref}`, async () => {
+      const link = this.page.locator(`a[href="${gameHref}"]`).first();
+      await link.locator('button[class*="ToggleFavourite_toggleFavourite"]').click();
+    });
+  }
+
+  async isFavorited(gameHref: string): Promise<boolean> {
+    const link = this.page.locator(`a[href="${gameHref}"]`).first();
+    const label = await link.locator('button[class*="ToggleFavourite_toggleFavourite"]').getAttribute('aria-label');
+    return label === 'Remove from favorites';
+  }
+
+  /**
+   * Confirms the Verification page loads with its intro content. Used to
+   * also assert a "Next step" button, but that's no longer reliably
+   * present — confirmed live 2026-08-27 that this account's "Step 1"
+   * profile-info gate is already complete (see
+   * [[project-test-account-locked-fields]]), and the page now renders
+   * without that button at all rather than advancing past it. The intro
+   * copy is the stable part regardless of wizard step state.
+   */
   async expectVerificationPageLoaded(): Promise<void> {
     await step('Open Verification and confirm the expected fields render', async () => {
       await this.page.goto('/account/verification');
       await this.page.waitForLoadState('domcontentloaded');
       await this.dismissPromoPopupIfPresent();
       await expect(this.page.getByText('Verification', { exact: true }).first()).toBeVisible();
-      await expect(this.page.getByRole('button', { name: 'Next step' })).toBeVisible();
+      await expect(this.page.getByText(/original identifying documents/i)).toBeVisible();
     });
   }
 
