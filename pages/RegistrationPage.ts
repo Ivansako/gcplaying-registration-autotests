@@ -405,6 +405,49 @@ export class RegistrationPage {
   }
 
   /**
+   * Renders a small, self-contained HTML block for a "🔍 Issue Analysis"
+   * attachment — see `BrandContentPage.ts`'s copy of this method for the
+   * full rationale (no native "Issue" tab exists in Allure; an
+   * attachment inside the step is the closest achievable equivalent).
+   */
+  private issueAnalysisHtml(opts: { severity: string; rootCause: string; whatToCheck: string }): string {
+    // Explicit charset — without it, the em-dashes and curly quotes in
+    // these write-ups render as mojibake (confirmed live 2026-08-27).
+    return `<!doctype html><html><head><meta charset="utf-8"></head><body>
+    <div style="font-family: sans-serif; font-size: 13px; line-height: 1.6; max-width: 640px;">
+      <p><strong>Severity:</strong> ${opts.severity}</p>
+      <p><strong>Root cause</strong><br>${opts.rootCause}</p>
+      <p><strong>What to check manually</strong><br>${opts.whatToCheck}</p>
+    </div>
+    </body></html>`;
+  }
+
+  private consoleErrorAnalysis(errors: string[]): { severity: string; rootCause: string; whatToCheck: string } {
+    if (errors.some((e) => e.includes('INSUFFICIENT_PATH'))) {
+      return {
+        severity: 'Low (known issue)',
+        rootCause:
+          'Matches a known, already-triaged site defect: "em: INSUFFICIENT_PATH" thrown from a useMemo in the ' +
+          "site's shared [locale] layout chunk. Confirmed live 2026-08-27 — fires on both anonymous and " +
+          'authenticated flows (not login-specific, despite the name it was first found under), most likely ' +
+          'triggered by opening interactive UI (modals, popups). No functional breakage observed in any session ' +
+          'so far.',
+        whatToCheck:
+          'No action needed unless this starts correlating with real user-facing breakage. Tracked as a known ' +
+          'defect — don\'t re-investigate from scratch each time it shows up.',
+      };
+    }
+    return {
+      severity: 'Needs triage',
+      rootCause: `The browser logged a genuine JavaScript error during this page's lifecycle: ${errors.slice(0, 3).join(' | ')}. Could be a real functional bug, third-party script noise, or something not yet catalogued.`,
+      whatToCheck:
+        "Open browser DevTools console on this exact page/flow, reproduce, and check the stack trace's " +
+        'originating file/line. If it recurs across many tests, consider whether it should be filtered as noise ' +
+        '(like the 429s already excluded here) or documented as a new known issue.',
+    };
+  }
+
+  /**
    * Second-stage UI check, used after each meaningful check in the brand
    * test so every step has visual evidence, on both desktop and mobile
    * viewports. Waits for the page to genuinely finish rendering
@@ -446,12 +489,40 @@ export class RegistrationPage {
 
       if (brokenImages.length > 0) {
         await logStep(`Broken images: ${brokenImages.join(', ')}`, Status.BROKEN);
+        await attachment(
+          '🔍 Issue Analysis — Broken images',
+          this.issueAnalysisHtml({
+            severity: 'Medium',
+            rootCause: `${brokenImages.length} &lt;img&gt; element(s) failed to load (naturalWidth stayed 0): ${brokenImages.join(', ')}. Usually a missing/renamed asset, a broken CDN reference, or a timing race where the src was requested before the resource existed.`,
+            whatToCheck:
+              'Open this page in a real browser and look for a broken-image icon or blank space where the ' +
+              'listed image(s) should render. Check the Network tab for 4xx/5xx responses on the URLs above.',
+          }),
+          ContentType.HTML
+        );
       }
       if (overflowPx > 0) {
         await logStep(`Horizontal overflow: ${overflowPx}px wider than the viewport`, Status.BROKEN);
+        await attachment(
+          '🔍 Issue Analysis — Horizontal overflow',
+          this.issueAnalysisHtml({
+            severity: overflowPx > 50 ? 'Medium' : 'Low',
+            rootCause: `The page renders ${overflowPx}px wider than the viewport, forcing an unwanted horizontal scrollbar. Usually an image/table without max-width, a fixed-width element, or a layout bug specific to this viewport.`,
+            whatToCheck:
+              'Resize the browser to this exact viewport and look for a horizontal scrollbar. In DevTools, use ' +
+              "the Elements panel's layout/overflow debugging (or widen elements one at a time) to find which " +
+              'one is too wide.',
+          }),
+          ContentType.HTML
+        );
       }
       if (consoleErrors.length > 0) {
         await logStep(`Browser console errors: ${consoleErrors.slice(0, 3).join(' | ')}`, Status.BROKEN);
+        await attachment(
+          '🔍 Issue Analysis — Console errors',
+          this.issueAnalysisHtml(this.consoleErrorAnalysis(consoleErrors)),
+          ContentType.HTML
+        );
       }
     });
   }
