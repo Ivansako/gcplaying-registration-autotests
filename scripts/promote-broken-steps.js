@@ -16,11 +16,23 @@
  * (at any depth) to a top-level "broken" status — so it renders as the
  * orange dot in the report tree. Never touches an already-"failed" test
  * (a real functional failure stays red, as it should).
+ *
+ * Also copies allure-categories.json (tracked in the repo root) into
+ * allure-results/categories.json, since allure-results/ itself is
+ * gitignored and rebuilt fresh every run. Allure's built-in status *name*
+ * shown on the badge/tooltip is always "Broken" — that's hardcoded in the
+ * report viewer itself, not configurable — but the Categories grouping
+ * (a separate tab/label Allure derives from categories.json) is, so this
+ * renames the default "Test defects"/"Product defects" buckets to
+ * "Passed with Errors" / "Failed", matching this project's own vocabulary
+ * for the three states that matter here: Passed (green), Failed (red),
+ * Passed with Errors (orange).
  */
 const fs = require('fs');
 const path = require('path');
 
 const RESULTS_DIR = path.join(__dirname, '..', 'allure-results');
+const CATEGORIES_SOURCE = path.join(__dirname, '..', 'allure-categories.json');
 
 function hasBrokenStep(steps) {
   for (const step of steps || []) {
@@ -32,6 +44,10 @@ function hasBrokenStep(steps) {
 
 function main() {
   if (!fs.existsSync(RESULTS_DIR)) return;
+
+  if (fs.existsSync(CATEGORIES_SOURCE)) {
+    fs.copyFileSync(CATEGORIES_SOURCE, path.join(RESULTS_DIR, 'categories.json'));
+  }
 
   const files = fs.readdirSync(RESULTS_DIR).filter((f) => f.endsWith('-result.json'));
   let promoted = 0;

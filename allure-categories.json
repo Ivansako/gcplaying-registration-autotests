@@ -1,0 +1,10 @@
+[
+  {
+    "name": "Passed with Errors",
+    "matchedStatuses": ["broken"]
+  },
+  {
+    "name": "Failed",
+    "matchedStatuses": ["failed"]
+  }
+]
