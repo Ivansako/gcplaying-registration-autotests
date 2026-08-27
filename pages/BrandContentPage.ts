@@ -1,5 +1,5 @@
 import { expect, Locator, Page } from '@playwright/test';
-import { attachment, logStep, step } from 'allure-js-commons';
+import { attachment, descriptionHtml, logStep, step } from 'allure-js-commons';
 import { ContentType, Status } from 'allure-js-commons';
 
 /**
@@ -102,6 +102,35 @@ export class BrandContentPage {
     </body></html>`;
   }
 
+  // Accumulates every finding this test instance has hit so far, so the
+  // full picture stays visible even after a 2nd/3rd finding overwrites
+  // the description.
+  private issuesFound: string[] = [];
+
+  /**
+   * Surfaces a finding in the ONE place a person actually looks first:
+   * the test's own Description on the Overview tab — no clicking into
+   * nested steps required. A `logStep(..., Status.BROKEN)` step and a
+   * "🔍 Issue Analysis" attachment (see callers) still get written too,
+   * for archival/step-level context, but this is what makes the finding
+   * impossible to miss. Confirmed live 2026-08-27: burying it 3 steps
+   * deep meant nobody could find it without being told exactly where to
+   * click.
+   */
+  private async flagIssue(where: string, opts: { severity: string; rootCause: string; whatToCheck: string }): Promise<void> {
+    this.issuesFound.push(
+      `<div style="margin: 0 0 14px; padding: 10px 14px; border-left: 4px solid #e2a33a; background: #fff8ec; font-family: sans-serif; font-size: 13px; line-height: 1.6;">
+        <p style="margin: 0 0 6px; font-weight: 600;">⚠️ ${where}</p>
+        <p style="margin: 0 0 4px;"><strong>Severity:</strong> ${opts.severity}</p>
+        <p style="margin: 0 0 4px;"><strong>Root cause:</strong> ${opts.rootCause}</p>
+        <p style="margin: 0;"><strong>What to check manually:</strong> ${opts.whatToCheck}</p>
+      </div>`
+    );
+    await descriptionHtml(
+      `<div style="font-family: sans-serif;">${this.issuesFound.join('')}</div>`
+    );
+  }
+
   /**
    * Console-error findings get a richer analysis than the other two
    * categories: distinguishes a known, already-triaged site defect
@@ -172,40 +201,34 @@ export class BrandContentPage {
 
       if (brokenImages.length > 0) {
         await logStep(`Broken images: ${brokenImages.join(', ')}`, Status.BROKEN);
-        await attachment(
-          '🔍 Issue Analysis — Broken images',
-          this.issueAnalysisHtml({
-            severity: 'Medium',
-            rootCause: `${brokenImages.length} &lt;img&gt; element(s) failed to load (naturalWidth stayed 0): ${brokenImages.join(', ')}. Usually a missing/renamed asset, a broken CDN reference, or a timing race where the src was requested before the resource existed.`,
-            whatToCheck:
-              'Open this page in a real browser and look for a broken-image icon or blank space where the ' +
-              'listed image(s) should render. Check the Network tab for 4xx/5xx responses on the URLs above.',
-          }),
-          ContentType.HTML
-        );
+        const opts = {
+          severity: 'Medium',
+          rootCause: `${brokenImages.length} &lt;img&gt; element(s) failed to load (naturalWidth stayed 0): ${brokenImages.join(', ')}. Usually a missing/renamed asset, a broken CDN reference, or a timing race where the src was requested before the resource existed.`,
+          whatToCheck:
+            'Open this page in a real browser and look for a broken-image icon or blank space where the ' +
+            'listed image(s) should render. Check the Network tab for 4xx/5xx responses on the URLs above.',
+        };
+        await attachment('🔍 Issue Analysis — Broken images', this.issueAnalysisHtml(opts), ContentType.HTML);
+        await this.flagIssue(`Broken images — ${name}`, opts);
       }
       if (overflowPx > 0) {
         await logStep(`Horizontal overflow: ${overflowPx}px wider than the viewport`, Status.BROKEN);
-        await attachment(
-          '🔍 Issue Analysis — Horizontal overflow',
-          this.issueAnalysisHtml({
-            severity: overflowPx > 50 ? 'Medium' : 'Low',
-            rootCause: `The page renders ${overflowPx}px wider than the viewport, forcing an unwanted horizontal scrollbar. Usually an image/table without max-width, a fixed-width element, or a layout bug specific to this viewport.`,
-            whatToCheck:
-              'Resize the browser to this exact viewport and look for a horizontal scrollbar. In DevTools, use ' +
-              "the Elements panel's layout/overflow debugging (or widen elements one at a time) to find which " +
-              'one is too wide.',
-          }),
-          ContentType.HTML
-        );
+        const opts = {
+          severity: overflowPx > 50 ? 'Medium' : 'Low',
+          rootCause: `The page renders ${overflowPx}px wider than the viewport, forcing an unwanted horizontal scrollbar. Usually an image/table without max-width, a fixed-width element, or a layout bug specific to this viewport.`,
+          whatToCheck:
+            'Resize the browser to this exact viewport and look for a horizontal scrollbar. In DevTools, use ' +
+            "the Elements panel's layout/overflow debugging (or widen elements one at a time) to find which " +
+            'one is too wide.',
+        };
+        await attachment('🔍 Issue Analysis — Horizontal overflow', this.issueAnalysisHtml(opts), ContentType.HTML);
+        await this.flagIssue(`Horizontal overflow — ${name}`, opts);
       }
       if (consoleErrors.length > 0) {
         await logStep(`Browser console errors: ${consoleErrors.slice(0, 3).join(' | ')}`, Status.BROKEN);
-        await attachment(
-          '🔍 Issue Analysis — Console errors',
-          this.issueAnalysisHtml(this.consoleErrorAnalysis(consoleErrors)),
-          ContentType.HTML
-        );
+        const opts = this.consoleErrorAnalysis(consoleErrors);
+        await attachment('🔍 Issue Analysis — Console errors', this.issueAnalysisHtml(opts), ContentType.HTML);
+        await this.flagIssue(`Console errors — ${name}`, opts);
       }
     });
   }
