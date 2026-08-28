@@ -75,6 +75,10 @@ jobs:
           BASE_URL: ${{ inputs.base_url }}
           TEST_USER_EMAIL: ${{ secrets.TEST_USER_EMAIL }}
           TEST_USER_PASSWORD: ${{ secrets.TEST_USER_PASSWORD }}
+          WILDIES_TEST_USER_EMAIL: ${{ secrets.WILDIES_TEST_USER_EMAIL }}
+          WILDIES_TEST_USER_PASSWORD: ${{ secrets.WILDIES_TEST_USER_PASSWORD }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           GREP_ARGS=""
           # The brand-gcplaying suite has no submit-toggle concept: its
