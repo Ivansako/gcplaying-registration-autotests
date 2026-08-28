@@ -189,7 +189,17 @@ export class WildiesPage {
   async launchGame(href: string): Promise<void> {
     await step(`Launch game: ${href}`, async () => {
       await this.dismissModalIfPresent();
-      await this.page.locator(`a[href="${href}"]`).first().click();
+      const gameLink = this.page.locator(`a[href="${href}"]`).first();
+      try {
+        await gameLink.click({ timeout: 5_000 });
+      } catch {
+        // Confirmed live 2026-08-28: the "Finances" modal can appear a
+        // beat AFTER the first dismiss check above (not just right after
+        // login), reopening in the gap before this click and intercepting
+        // it. One retry, dismissing again first, resolves it.
+        await this.dismissModalIfPresent();
+        await gameLink.click();
+      }
       await this.page.waitForTimeout(6_000);
     });
   }
