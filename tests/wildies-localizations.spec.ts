@@ -1,57 +1,32 @@
-import { test, expect } from '../utils/testWithIssueAnalysis';
+import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
+import { EXISTING_LOCALES, PENDING_LOCALES } from '../utils/wildiesLocales';
 
 /**
- * beta.wildies.com — locale coverage, written ahead of the
+ * beta.wildies.com — locale switcher mechanics (URL scheme, dropdown
+ * options, `<html lang>` updates), written ahead of the
  * German/Finnish/Spanish/Swedish/Norwegian rollout (see the "Add German |
  * Finnish | Spanish | Swedish | Norwegian languages to the Drop Down and
- * deploy to Beta" ticket) so it's ready the moment they land. Exercised
- * meanwhile against the 6 locales already live — see `pages/WildiesPage.ts`
- * for how the switcher/URL scheme was confirmed.
+ * deploy to Beta" ticket) so it's ready the moment they land. Site-wide
+ * translation *completeness* (no untranslated keys leaking through) is a
+ * separate concern — see `tests/wildies-translation-coverage.spec.ts`.
  *
  * Separate brand from gcplaying0175.com — run via
  * `playwright.wildies.config.ts` (its own Allure results/report
  * directory, not gcplaying0175.com's), not the default `playwright.config.ts`.
+ *
+ * A FRESH visit (no prior cookie/preference) to EITHER bare "/" or the
+ * explicit "/en" resolves by geo-IP instead of always landing on English
+ * — confirmed live 2026-08-28: an isolated Playwright context landed on
+ * Italian both times, since this automation's network resolves to Italy
+ * (the same environment quirk already documented for gcplaying0175.com's
+ * country defaulting). Only non-default locales' explicit prefixes
+ * bypass this. Practical effect: English can't be reliably reached via a
+ * direct URL in this environment — it's covered instead by the
+ * dropdown-switch test below (a client-side route change, confirmed NOT
+ * geo-redirected).
  */
-
-// English is the default locale (the switcher navigates it to bare "/",
-// no path prefix) — every other locale gets a "/{code}" prefix. A FRESH
-// visit (no prior cookie/preference) to EITHER bare "/" or the explicit
-// "/en" resolves by geo-IP instead — confirmed live 2026-08-28: an
-// isolated Playwright context landed on Italian both times, since this
-// automation's network resolves to Italy (the same environment quirk
-// already documented for gcplaying0175.com's country defaulting). Only
-// non-default locales' explicit prefixes bypass this. Practical effect:
-// English can't be reliably reached via a direct URL in this
-// environment — it's covered instead by the dropdown-switch test below
-// (a client-side route change, confirmed NOT geo-redirected). Labels are
-// each language's own native display name, exactly as the dropdown
-// shows it (confirmed live 2026-08-28) — not the English name
-// ("Ελληνικά", not "Greek").
-const EXISTING_LOCALES = [
-  { label: 'English', code: 'en', path: 'en' },
-  { label: 'Nederlands', code: 'nl', path: 'nl' },
-  { label: 'Français', code: 'fr', path: 'fr' },
-  { label: 'Italiano', code: 'it', path: 'it' },
-  { label: 'Português', code: 'pt', path: 'pt' },
-  { label: 'Ελληνικά', code: 'el', path: 'el' },
-];
-
-// Not yet deployed. Labels are a best guess at each language's native
-// self-name, following the pattern above ("Nederlands" not "Dutch") —
-// unconfirmed, since none of these exist in the live dropdown yet to
-// check against. If the real label ships differently, the affected
-// test below will just keep skipping (never false-fail) until the label
-// here is corrected to match — worth a quick look the first time this
-// suite runs after the rollout ships.
-const PENDING_LOCALES = [
-  { label: 'Deutsch', code: 'de', path: 'de' },
-  { label: 'Suomi', code: 'fi', path: 'fi' },
-  { label: 'Español', code: 'es', path: 'es' },
-  { label: 'Svenska', code: 'sv', path: 'sv' },
-  { label: 'Norsk', code: 'no', path: 'no' },
-];
 
 test.describe('beta.wildies.com — locale switching', () => {
   test.beforeEach(async () => {
