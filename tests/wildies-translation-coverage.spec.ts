@@ -1,7 +1,36 @@
 import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
-import { EXISTING_LOCALES } from '../utils/wildiesLocales';
+import { EXISTING_LOCALES, PENDING_LOCALES, WildiesLocale } from '../utils/wildiesLocales';
+
+// Covers the 5 pending locales too, not just the 6 already live — each
+// pending-locale test self-skips (see `ensureLocaleLive` below) until the
+// site actually offers it, then starts running for real with no code
+// change, same "ready ahead of time" design as
+// `tests/wildies-localizations.spec.ts`. Caveat inherited from that file:
+// `PENDING_LOCALES`' labels are an unconfirmed best guess (e.g. "Deutsch")
+// — if the real dropdown ever shows a different native name, the
+// live-check below would keep skipping even after deployment; re-confirm
+// the label against `wildies-localizations.spec.ts`'s "Switcher lists
+// every currently available locale" test output once each locale ships.
+const ALL_LOCALES = [...EXISTING_LOCALES, ...PENDING_LOCALES];
+
+/**
+ * For a not-yet-live locale, skips the test with a clear reason instead of
+ * navigating straight to its URL prefix (e.g. `/de/casino`) — that path's
+ * behavior before the locale is deployed is unconfirmed (could 404, could
+ * redirect), so this checks the dropdown from a known-good page (the
+ * default-locale home) first. No-op for an already-live locale.
+ */
+async function ensureLocaleLive(wildiesPage: WildiesPage, locale: WildiesLocale): Promise<void> {
+  if (!PENDING_LOCALES.some((p) => p.code === locale.code)) return;
+  await wildiesPage.open();
+  const labels = await wildiesPage.getAvailableLocaleLabels();
+  test.skip(
+    !labels.includes(locale.label),
+    `"${locale.label}" not yet deployed — this test activates automatically once it ships, no code change needed`
+  );
+}
 
 const WILDIES_TEST_USER_EMAIL = process.env.WILDIES_TEST_USER_EMAIL;
 const WILDIES_TEST_USER_PASSWORD = process.env.WILDIES_TEST_USER_PASSWORD;
@@ -9,9 +38,11 @@ const WILDIES_TEST_USER_PASSWORD = process.env.WILDIES_TEST_USER_PASSWORD;
 /**
  * beta.wildies.com — translation completeness across the whole brand:
  * every anonymous-access page, then every authenticated account page,
- * checked in every locale currently live, for raw/untranslated text
- * leaking into the UI (see `WildiesPage.verifyTranslation()` for the
- * detection heuristic and how it writes its own Description). Complements
+ * checked in every locale currently live PLUS every pending locale
+ * (self-skipping until each one actually ships — see `ensureLocaleLive`
+ * above), for raw/untranslated text leaking into the UI (see
+ * `WildiesPage.verifyTranslation()` for the detection heuristic and how
+ * it writes its own Description). Complements
  * `tests/wildies-localizations.spec.ts` (which checks the switcher
  * mechanics itself — URL scheme, dropdown options, `<html lang>` — not
  * page content).
@@ -71,12 +102,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
   });
 
   for (const p of ANONYMOUS_PAGES) {
-    for (const locale of EXISTING_LOCALES) {
+    for (const locale of ALL_LOCALES) {
       test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
         allure.subSuite(p.name);
         allure.severity('normal');
 
         const wildiesPage = new WildiesPage(page);
+        await ensureLocaleLive(wildiesPage, locale);
         await wildiesPage.visitPage(p.path, locale.path);
         await wildiesPage.openSideMenu(); // opens the nav drawer + language switcher panel too
         await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, anonymous)`, [
@@ -91,12 +123,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
   }
 
   test.describe('Promotions (including each promotion\'s own Terms & Conditions)', () => {
-    for (const locale of EXISTING_LOCALES) {
+    for (const locale of ALL_LOCALES) {
       test(`Promotions — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
         allure.subSuite('Promotions');
         allure.severity('normal');
 
         const wildiesPage = new WildiesPage(page);
+        await ensureLocaleLive(wildiesPage, locale);
         await wildiesPage.visitPage('/promotions', locale.path);
         const { opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
         await wildiesPage.verifyTranslation(
@@ -121,12 +154,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
     );
 
     for (const p of AUTHENTICATED_PAGES) {
-      for (const locale of EXISTING_LOCALES) {
+      for (const locale of ALL_LOCALES) {
         test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
           allure.subSuite(p.name);
           allure.severity('normal');
 
           const wildiesPage = new WildiesPage(page);
+          await ensureLocaleLive(wildiesPage, locale);
           await wildiesPage.open(locale.path);
           await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
           await wildiesPage.visitPage(p.path, locale.path);
@@ -161,13 +195,14 @@ test.describe('beta.wildies.com — translation coverage', () => {
       'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set'
     );
 
-    for (const locale of EXISTING_LOCALES) {
+    for (const locale of ALL_LOCALES) {
       test(`Game History after a real spin — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
         test.setTimeout(75_000);
         allure.subSuite('Game History (after a real spin)');
         allure.severity('critical');
 
         const wildiesPage = new WildiesPage(page);
+        await ensureLocaleLive(wildiesPage, locale);
         await wildiesPage.open(locale.path);
         await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
 
