@@ -459,7 +459,10 @@ export class RegistrationPage {
    * per page-object-instance so findings from multiple page objects used
    * in the same test don't overwrite each other.
    */
-  private async flagIssue(where: string, opts: { severity: string; rootCause: string; whatToCheck: string }): Promise<void> {
+  private async flagIssue(
+    where: string,
+    opts: { severity: string; rootCause: string; whatToCheck: string; explainsFailure?: boolean }
+  ): Promise<void> {
     recordIssue({ where, ...opts });
   }
 

@@ -29,13 +29,21 @@ export const test = base.extend<{ _issueAnalysis: void }>({
       await use();
 
       const issues = [...getIssues()];
-      // Only add the generic pattern-matched classification when no page
-      // object already recorded a specific finding for this failure — a
-      // known-bug method's own curated write-up (see AccountPage.ts's
-      // expectUpdatePasswordDisabled()/saveProfileEditWithNoChanges())
-      // is always more precise than the generic fallback, and showing
-      // both would just be redundant clutter.
-      if ((testInfo.status === 'failed' || testInfo.status === 'timedOut') && issues.length === 0) {
+      // Only SKIP the generic pattern-matched classification when a page
+      // object already recorded a finding that specifically explains why
+      // THIS test failed (`explainsFailure: true` — see AccountPage.ts's
+      // expectUpdatePasswordDisabled()/saveProfileEditWithNoChanges()).
+      // Routine UI-check findings (broken images/overflow/console errors
+      // — recorded on every check regardless of pass/fail) don't count:
+      // a red test whose only recorded issue is an unrelated orange note
+      // (e.g. the known INSUFFICIENT_PATH console error, present on
+      // nearly every authenticated/registration flow) still needs its
+      // own real failure explained, not just that unrelated note shown
+      // in its place.
+      if (
+        (testInfo.status === 'failed' || testInfo.status === 'timedOut') &&
+        !issues.some((i) => i.explainsFailure)
+      ) {
         issues.push(classifyFailure(testInfo, consoleErrors));
       }
       if (issues.length > 0) {

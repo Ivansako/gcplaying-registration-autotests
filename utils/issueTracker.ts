@@ -18,6 +18,19 @@ export interface IssueEntry {
   severity: string;
   rootCause: string;
   whatToCheck: string;
+  /**
+   * Set true only by a finding that was recorded specifically because
+   * THIS test's own assertion failed for a known, curated reason (e.g.
+   * `AccountPage.expectUpdatePasswordDisabled()`'s catch block). Routine
+   * UI-check findings (broken images/overflow/console errors — recorded
+   * on every check regardless of pass/fail) leave this unset. The
+   * `testWithIssueAnalysis` fixture only skips its generic
+   * `classifyFailure()` fallback when at least one entry has this set —
+   * otherwise a red test whose only recorded issue is an unrelated
+   * routine orange note (e.g. the known INSUFFICIENT_PATH console error)
+   * would show that instead of an actual explanation for why it failed.
+   */
+  explainsFailure?: boolean;
 }
 
 const issuesByTest = new Map<string, IssueEntry[]>();

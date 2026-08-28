@@ -246,7 +246,10 @@ export class AccountPage {
    * per page-object-instance so findings from multiple page objects used
    * in the same test don't overwrite each other.
    */
-  private async flagIssue(where: string, opts: { severity: string; rootCause: string; whatToCheck: string }): Promise<void> {
+  private async flagIssue(
+    where: string,
+    opts: { severity: string; rootCause: string; whatToCheck: string; explainsFailure?: boolean }
+  ): Promise<void> {
     recordIssue({ where, ...opts });
   }
 
@@ -473,6 +476,7 @@ export class AccountPage {
             'still looks clickable. Client-side gap only — a real submit was never tested here (this suite ' +
             'never actually submits a real password change), so it\'s unconfirmed whether the server rejects ' +
             'it too.',
+          explainsFailure: true,
         };
         await attachment('🔍 Issue Analysis — Update Password stayed enabled', this.issueAnalysisHtml(opts), ContentType.HTML);
         await this.flagIssue('Update Password stayed enabled (weak password)', opts);
@@ -606,6 +610,7 @@ export class AccountPage {
             'Manually open Personal Details, click the edit pencil, then Save without changing anything — ' +
             'confirm the toast literally reads "nothing.to.update". Low severity: purely cosmetic, doesn\'t ' +
             'block any action, but looks unpolished/unfinished to a real user.',
+          explainsFailure: true,
         };
         await attachment('🔍 Issue Analysis — Untranslated toast text', this.issueAnalysisHtml(opts), ContentType.HTML);
         await this.flagIssue('Untranslated toast text (nothing.to.update)', opts);
