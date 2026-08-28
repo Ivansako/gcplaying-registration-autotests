@@ -32,6 +32,8 @@ test.describe('gcplaying0175.com — forgot password', () => {
       test.use({ ...config });
 
       test.beforeEach(async () => {
+        allure.parentSuite('1. Registration & Login');
+        allure.subSuite('Forgot Password');
         allure.epic('Brand Test');
         allure.feature('Forgot password');
         allure.owner('QA Automation');

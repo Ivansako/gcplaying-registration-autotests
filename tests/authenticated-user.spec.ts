@@ -16,6 +16,8 @@ test.describe('gcplaying0175.com — authenticated test user', () => {
   test.skip(!TEST_USER_EMAIL || !TEST_USER_PASSWORD, 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set');
 
   test.beforeEach(async () => {
+    allure.parentSuite('2. Account');
+    allure.subSuite('Session');
     allure.epic('Brand Test');
     allure.feature('Authenticated session');
     allure.owner('QA Automation');

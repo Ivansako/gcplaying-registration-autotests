@@ -34,6 +34,8 @@ test.describe('gcplaying0175.com — provider pages', () => {
       test.use({ ...config });
 
       test.beforeEach(async () => {
+        allure.parentSuite('5. Content Pages');
+        allure.subSuite('Provider Pages');
         allure.epic('Brand Test');
         allure.feature('Provider pages');
         allure.owner('QA Automation');

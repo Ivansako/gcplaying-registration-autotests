@@ -39,6 +39,8 @@ test.describe('gcplaying0175.com — public content pages', () => {
       test.use({ ...config });
 
       test.beforeEach(async () => {
+        allure.parentSuite('5. Content Pages');
+        allure.subSuite('Public Pages');
         allure.epic('Brand Test');
         allure.feature('Public content pages');
         allure.owner('QA Automation');

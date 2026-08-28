@@ -26,6 +26,8 @@ test.describe('gcplaying0175.com — casino website UI extras', () => {
       test.use({ ...config });
 
       test.beforeEach(async () => {
+        allure.parentSuite('3. Site Functionality');
+        allure.subSuite('Search, Menu & Language');
         allure.epic('Brand Test');
         allure.feature('Casino website UI');
         allure.owner('QA Automation');

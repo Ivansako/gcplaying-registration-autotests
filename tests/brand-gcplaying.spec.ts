@@ -44,6 +44,8 @@ test.describe('gcplaying0175.com — full brand test (registration + login)', ()
       test.use({ ...config });
 
       test.beforeEach(async () => {
+        allure.parentSuite('1. Registration & Login');
+        allure.subSuite('Registration + Login Flow');
         allure.epic('Brand Test');
         allure.feature('Registration + Login');
         allure.owner('QA Automation');

@@ -26,6 +26,8 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
   test.skip(!TEST_USER_EMAIL || !TEST_USER_PASSWORD, 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set');
 
   test.beforeEach(async () => {
+    allure.parentSuite('2. Account');
+    allure.subSuite('Account & Wallet');
     allure.epic('Brand Test');
     allure.feature('Authenticated session');
     allure.owner('QA Automation');
@@ -123,6 +125,8 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
   test('Favorites toggle adds and removes a game', { tag: ['@auth'] }, async ({ page }) => {
     test.setTimeout(75_000);
 
+    allure.parentSuite('4. Game Providers');
+    allure.subSuite('Games');
     allure.severity('minor');
     allure.description(
       'Toggles favorite status on a known game (Fortune of Olympus), confirms it appears under the ' +
@@ -219,6 +223,8 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
     // confirmed live 2026-08-27 that 150s wasn't enough headroom.
     test.setTimeout(240_000);
 
+    allure.parentSuite('4. Game Providers');
+    allure.subSuite('Games');
     allure.severity('normal');
     allure.description(
       'Discovers 5 games live from the lobby as the logged-in test user and confirms each reaches a ' +
@@ -259,6 +265,8 @@ test.describe('gcplaying0175.com — authenticated account checks', () => {
       // fit the default 45s.
       test.setTimeout(75_000);
 
+      allure.parentSuite('4. Game Providers');
+      allure.subSuite('Games');
       allure.severity('normal');
       allure.description(
         'Places one real, minimum-bet ($0.20) spin on a specific pre-confirmed game and verifies the ' +

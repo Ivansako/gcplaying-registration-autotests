@@ -37,6 +37,8 @@ test.describe('gcplaying0175.com — footer / legal pages', () => {
       test.use({ ...config });
 
       test.beforeEach(async () => {
+        allure.parentSuite('5. Content Pages');
+        allure.subSuite('Legal & Footer');
         allure.epic('Brand Test');
         allure.feature('Footer / legal pages');
         allure.owner('QA Automation');

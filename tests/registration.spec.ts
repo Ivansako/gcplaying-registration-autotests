@@ -37,6 +37,8 @@ import {
  */
 test.describe('Registration on gcplaying0175.com', () => {
   test.beforeEach(async ({ page }) => {
+    allure.parentSuite('1. Registration & Login');
+    allure.subSuite('Sign Up');
     allure.epic('Authentication');
     allure.feature('Registration');
     allure.owner('QA Automation');

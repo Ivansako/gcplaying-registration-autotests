@@ -31,6 +31,8 @@ test.describe('gcplaying0175.com — cashier, password, and profile checks', () 
   test.skip(!TEST_USER_EMAIL || !TEST_USER_PASSWORD, 'TEST_USER_EMAIL / TEST_USER_PASSWORD not set');
 
   test.beforeEach(async () => {
+    allure.parentSuite('2. Account');
+    allure.subSuite('Profile & Security');
     allure.epic('Brand Test');
     allure.feature('Authenticated session');
     allure.owner('QA Automation');
