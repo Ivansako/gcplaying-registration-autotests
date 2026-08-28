@@ -12,6 +12,7 @@ on:
           - brand-gcplaying
           - authenticated-account
           - game-providers
+          - wildies-localizations
           - all
       browser:
         description: 'Which browser project to run on'
@@ -53,6 +54,7 @@ jobs:
             brand-gcplaying) echo "path=tests/brand-gcplaying.spec.ts tests/brand-content-pages.spec.ts tests/brand-legal-pages.spec.ts tests/brand-providers.spec.ts tests/forgot-password.spec.ts tests/brand-casino-ui.spec.ts" >> "$GITHUB_OUTPUT" ;;
             authenticated-account) echo "path=tests/authenticated-user.spec.ts tests/authenticated-account.spec.ts tests/authenticated-profile.spec.ts" >> "$GITHUB_OUTPUT" ;;
             game-providers) echo "path=tests/game-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
+            wildies-localizations) echo "path=tests/wildies-localizations.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
           esac
 

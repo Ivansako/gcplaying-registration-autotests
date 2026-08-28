@@ -84,6 +84,12 @@ const SUITES = [
     sub: 'ferraplay.com — findings ledger, no live browser',
     category: 'product',
   },
+  {
+    value: 'wildies-localizations',
+    label: 'Localizations — beta.wildies.com',
+    sub: 'Locale switching across all live languages, plus self-skipping checks for German/Finnish/Spanish/Swedish/Norwegian ahead of their rollout',
+    category: 'localization',
+  },
   { value: 'all', label: 'All suites', sub: 'Everything above', category: 'all' },
 ];
 
