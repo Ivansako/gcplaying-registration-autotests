@@ -57,6 +57,18 @@ jobs:
             wildies-localizations) echo "path=tests/wildies-localizations.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
           esac
+          # Wildies is a different brand, kept in its own config/results dir
+          # (see playwright.wildies.config.ts) rather than gcplaying0175.com's
+          # — same reasoning as the local report split.
+          if [ "${{ inputs.spec }}" == "wildies-localizations" ]; then
+            echo "config=--config=playwright.wildies.config.ts" >> "$GITHUB_OUTPUT"
+            echo "results-dir=allure-results-wildies" >> "$GITHUB_OUTPUT"
+            echo "report-dir=allure-report-wildies" >> "$GITHUB_OUTPUT"
+          else
+            echo "config=" >> "$GITHUB_OUTPUT"
+            echo "results-dir=allure-results" >> "$GITHUB_OUTPUT"
+            echo "report-dir=allure-report" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Run tests
         env:
@@ -73,7 +85,7 @@ jobs:
           if [ "${{ inputs.spec }}" != "brand-gcplaying" ] && [ "${{ inputs.include_form_submitting }}" != "true" ]; then
             GREP_ARGS="--grep-invert @positive|@duplicate"
           fi
-          npx playwright test ${{ steps.spec.outputs.path }} --project=${{ inputs.browser }} --workers=1 $GREP_ARGS
+          npx playwright test ${{ steps.spec.outputs.path }} ${{ steps.spec.outputs.config }} --project=${{ inputs.browser }} --workers=1 $GREP_ARGS
         continue-on-error: true
         id: run_tests
 
@@ -81,15 +93,15 @@ jobs:
         if: always()
         run: |
           npm install -g allure-commandline
-          node scripts/promote-broken-steps.js
-          allure generate allure-results --clean -o allure-report
+          node scripts/promote-broken-steps.js ${{ steps.spec.outputs.results-dir }}
+          allure generate ${{ steps.spec.outputs.results-dir }} --clean -o ${{ steps.spec.outputs.report-dir }}
 
       - name: Upload Allure report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: allure-report
-          path: allure-report
+          path: ${{ steps.spec.outputs.report-dir }}
           retention-days: 30
 
       - name: Fail job if tests failed

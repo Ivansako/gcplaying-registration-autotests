@@ -31,7 +31,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const RESULTS_DIR = path.join(__dirname, '..', 'allure-results');
+// Optional CLI arg: `node promote-broken-steps.js allure-results-wildies`
+// — defaults to allure-results for the gcplaying0175.com suite, but any
+// other brand's separate results directory (see playwright.wildies.config.ts)
+// can be promoted the same way without duplicating this script.
+const RESULTS_DIR = path.join(__dirname, '..', process.argv[2] || 'allure-results');
 const CATEGORIES_SOURCE = path.join(__dirname, '..', 'allure-categories.json');
 
 function hasBrokenStep(steps) {

@@ -1,7 +1,10 @@
 node_modules/
 allure-results/
 allure-report/
+allure-results-wildies/
+allure-report-wildies/
 playwright-report/
+playwright-report-wildies/
 test-results/
 .env
 .claude/

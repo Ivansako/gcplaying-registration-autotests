@@ -10,10 +10,10 @@ import { WildiesPage } from '../pages/WildiesPage';
  * meanwhile against the 6 locales already live — see `pages/WildiesPage.ts`
  * for how the switcher/URL scheme was confirmed.
  *
- * Separate brand from gcplaying0175.com — overrides `baseURL` for this
- * file only rather than touching the shared `playwright.config.ts`.
+ * Separate brand from gcplaying0175.com — run via
+ * `playwright.wildies.config.ts` (its own Allure results/report
+ * directory, not gcplaying0175.com's), not the default `playwright.config.ts`.
  */
-test.use({ baseURL: 'https://beta.wildies.com' });
 
 // English is the default locale (the switcher navigates it to bare "/",
 // no path prefix) — every other locale gets a "/{code}" prefix. A FRESH
