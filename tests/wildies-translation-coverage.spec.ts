@@ -183,8 +183,9 @@ test.describe('beta.wildies.com — translation coverage', () => {
       // register. What actually matters for the locale checks downstream
       // is a fresh row in Game History, confirmed here instead.
       await wildiesPage.visitPage('/account/game-history');
-      await expect(page.getByText(/Game History/i).first()).toBeVisible({ timeout: 10_000 }).catch(() => {});
-      const rowCount = await page.locator('table tbody tr, [class*="game-history" i] tr').count().catch(() => 0);
+      const rows = page.locator('table tbody tr');
+      await rows.first().waitFor({ timeout: 15_000 }).catch(() => {});
+      const rowCount = await rows.count().catch(() => 0);
       allure.parameter('Game History rows found', String(rowCount));
       expect(rowCount, 'Game History should show at least one row after the seed spin').toBeGreaterThan(0);
     });

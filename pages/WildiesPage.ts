@@ -274,7 +274,16 @@ export class WildiesPage {
       const balanceBefore = await this.getBalanceText();
 
       const gameLink = this.page.locator('a[href="/game/real/63385"]').first();
-      await gameLink.click();
+      try {
+        await gameLink.click({ timeout: 8_000 });
+      } catch {
+        // Confirmed live 2026-08-30: the auto-opening "Finances" modal can
+        // appear a beat AFTER the dismiss check above, intercepting this
+        // click — same race `launchGame()` and `openCashier()` already
+        // retry around.
+        await this.dismissModalIfPresent();
+        await gameLink.click();
+      }
       await this.page.waitForTimeout(20_000); // provider splash/loading screen
 
       await this.dismissModalIfPresent();
