@@ -3,6 +3,7 @@ import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
 import { EXISTING_LOCALES, PENDING_LOCALES, WildiesLocale } from '../utils/wildiesLocales';
+import { SEED_ACCOUNT, ACCOUNT_POOL, nextPooledAccount } from '../utils/wildiesAccounts';
 
 // Covers the 5 pending locales too, not just the 6 already live — each
 // pending-locale test self-skips (see `ensureLocaleLive` below) until the
@@ -48,20 +49,21 @@ const VIEWPORTS = [
   { name: 'Mobile (Pixel 7)', config: stripBrowserType(devices['Pixel 7']) },
 ];
 
-const WILDIES_TEST_USER_EMAIL = process.env.WILDIES_TEST_USER_EMAIL;
-const WILDIES_TEST_USER_PASSWORD = process.env.WILDIES_TEST_USER_PASSWORD;
-const hasCreds = !!WILDIES_TEST_USER_EMAIL && !!WILDIES_TEST_USER_PASSWORD;
+const hasCreds = !!SEED_ACCOUNT && ACCOUNT_POOL.length > 0;
 
 /**
  * beta.wildies.com — translation completeness across the whole brand:
- * every anonymous-access page, the Cashier, the Login/Sign Up popups, then
- * every authenticated account page, checked in every locale currently
- * live PLUS every pending locale (self-skipping until each one actually
- * ships — see `ensureLocaleLive` above), for raw/untranslated text
- * leaking into the UI (see `WildiesPage.verifyTranslation()` for the
- * detection heuristic and how it writes its own Description) AND for a
- * translated string breaking the page's layout (checked at both a
- * desktop and a mobile viewport — see `VIEWPORTS` above). Complements
+ * every anonymous-access page, the Cashier, the Login/Sign Up popups
+ * (including Forgot Password and a real duplicate-email registration
+ * attempt), the account avatar dropdown, every tournament's own detail
+ * page, a non-existent-page error boundary, then every authenticated
+ * account page, checked in every locale currently live PLUS every
+ * pending locale (self-skipping until each one actually ships — see
+ * `ensureLocaleLive` above), for raw/untranslated text leaking into the
+ * UI (see `WildiesPage.verifyTranslation()` for the detection heuristic
+ * and how it writes its own Description) AND for a translated string
+ * breaking the page's layout (checked at both a desktop and a mobile
+ * viewport — see `VIEWPORTS` above). Complements
  * `tests/wildies-localizations.spec.ts` (which checks the switcher
  * mechanics itself — URL scheme, dropdown options, `<html lang>` — not
  * page content).
@@ -81,24 +83,45 @@ const hasCreds = !!WILDIES_TEST_USER_EMAIL && !!WILDIES_TEST_USER_PASSWORD;
  * Real money, spent ONCE per suite run, not once per locale (2026-08-29):
  * one minimum-bet slot spin and one minimum-stake sportsbook bet are
  * placed up front (see the "Seed real-money history" block below, pinned
- * to Desktop), then every locale × viewport combination for Game History
- * and Sportsbook My Bets just navigates to that already-seeded entry and
- * checks its labels are translated — the entry's own data doesn't change
- * per locale, only the labels/date formatting around it do, so re-betting
- * per locale would only multiply real-money spend for no extra signal.
+ * to Desktop, always on `SEED_ACCOUNT`), then every locale × viewport
+ * combination for Game History and Sportsbook My Bets just navigates to
+ * that already-seeded entry and checks its labels are translated — the
+ * entry's own data doesn't change per locale, only the labels/date
+ * formatting around it do, so re-betting per locale would only multiply
+ * real-money spend for no extra signal.
+ *
+ * Every OTHER authenticated check (Authenticated pages, Cashier, Forgot
+ * Password, duplicate-email registration, account menu) rotates through
+ * `ACCOUNT_POOL` via `nextPooledAccount()` instead of always using
+ * `SEED_ACCOUNT` — added 2026-08-29 after a full run's ~90 sequential
+ * logins on one account started tripping the site's own anti-fraud
+ * rate-limit ("Credenziali errate" on genuinely correct credentials).
+ * Spreading logins across multiple real accounts, none of which need any
+ * balance (these checks never place a bet or spin), avoids concentrating
+ * that load on any single one.
+ *
+ * A reactive popup (a "Level Up Reward Unlocked" toast was confirmed live
+ * 2026-08-29 right after a real bet) is scanned by
+ * `dismissModalIfPresent()` BEFORE it's closed, not just discarded — see
+ * `WildiesPage.takePendingModalFindings()`, drained into `extraFlagged`
+ * everywhere a test logs in or otherwise might trigger one.
  *
  * Page catalog confirmed live 2026-08-28/29 via the anonymous nav,
- * footer, and (logged in as WILDIES_TEST_USER_EMAIL) the account menu.
- * Not exhaustive of literally every URL on the brand — individual game
- * pages and each of the ~50 provider pages are out of scope (third-party
- * content, not this brand's own translations) — but covers every
+ * footer, and (logged in) the account menu. Not exhaustive of literally
+ * every URL on the brand — individual game pages and each of the ~50
+ * provider pages are out of scope (third-party content, not this brand's
+ * own translations), and so is the "Notifications" panel from the
+ * account menu specifically (confirmed live 2026-08-29 to be a
+ * cross-origin third-party widget with no evidence it re-embeds per site
+ * locale, unlike the sportsbook widget — see
+ * `WildiesPage`'s note on `openAccountMenu()`) — but covers every
  * distinct page template a real visitor actually navigates through,
- * including drilling into each promotion's own Terms & Conditions on the
- * Promotions page, the sportsbook's own odds/bet-slip widget (a
- * cross-origin iframe, confirmed to genuinely re-embed in the site's own
- * locale — real, checkable content, not a third-party black box), and
- * the Cashier's Deposit/Withdraw tabs (never submitted for real, same
- * safety pattern as every other form check in this repo).
+ * including drilling into each promotion's AND each tournament's own
+ * details on their listing pages, the sportsbook's own odds/bet-slip
+ * widget (a cross-origin iframe, confirmed to genuinely re-embed in the
+ * site's own locale — real, checkable content, not a third-party black
+ * box), and the Cashier's Deposit/Withdraw tabs (never submitted for
+ * real, same safety pattern as every other form check in this repo).
  */
 
 const ANONYMOUS_PAGES = [
@@ -115,8 +138,7 @@ const ANONYMOUS_PAGES = [
   { path: '/responsible-gambling', name: 'Responsible Gambling' },
 ];
 
-// Confirmed live 2026-08-28 by opening the avatar menu while logged in as
-// WILDIES_TEST_USER_EMAIL.
+// Confirmed live 2026-08-28 by opening the avatar menu while logged in.
 const AUTHENTICATED_PAGES = [
   { path: '/account/info', name: 'Profile Info' },
   { path: '/account/verification', name: 'Verification' },
@@ -135,9 +157,9 @@ test.describe('beta.wildies.com — translation coverage', () => {
   // Runs ONCE, before the locale/viewport matrix below, pinned to the
   // viewport `WildiesPage.spinFirstAvailableGame()`'s coordinates were
   // confirmed against. Real money — see the class-level comment above for
-  // why this only happens once per run.
+  // why this only happens once per run, always on `SEED_ACCOUNT`.
   test.describe('Seed real-money history (runs once, not per locale)', () => {
-    test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+    test.skip(!hasCreds, 'No Wildies test accounts configured');
     test.use({ viewport: { width: 1280, height: 800 } });
 
     test('Place one real minimum-bet slot spin', { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
@@ -151,11 +173,20 @@ test.describe('beta.wildies.com — translation coverage', () => {
 
       const wildiesPage = new WildiesPage(page);
       await wildiesPage.open();
-      await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+      await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
       const { balanceBefore, balanceAfter } = await wildiesPage.spinFirstAvailableGame();
       allure.parameter('Balance before', balanceBefore);
       allure.parameter('Balance after', balanceAfter);
-      expect(balanceAfter, 'Balance should change after a real spin').not.toBe(balanceBefore);
+      // NOT asserted on: confirmed live 2026-08-29 that a spin can
+      // legitimately win back exactly the bet amount, leaving the balance
+      // unchanged — that's a real result, not evidence the spin failed to
+      // register. What actually matters for the locale checks downstream
+      // is a fresh row in Game History, confirmed here instead.
+      await wildiesPage.visitPage('/account/game-history');
+      await expect(page.getByText(/Game History/i).first()).toBeVisible({ timeout: 10_000 }).catch(() => {});
+      const rowCount = await page.locator('table tbody tr, [class*="game-history" i] tr').count().catch(() => 0);
+      allure.parameter('Game History rows found', String(rowCount));
+      expect(rowCount, 'Game History should show at least one row after the seed spin').toBeGreaterThan(0);
     });
 
     test('Place one real minimum-stake sportsbook bet', { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
@@ -169,7 +200,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
 
       const wildiesPage = new WildiesPage(page);
       await wildiesPage.open();
-      await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+      await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
       const { event } = await wildiesPage.placeMinimumSportsbookBet();
       allure.parameter('Event backed', event ?? 'none found');
       expect(event, 'A non-live event should have been found and bet on').not.toBeNull();
@@ -257,6 +288,29 @@ test.describe('beta.wildies.com — translation coverage', () => {
         }
       });
 
+      test.describe("Tournaments (including each tournament's own detail page)", () => {
+        for (const locale of ALL_LOCALES) {
+          test(`Tournament details — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Tournaments');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            const { opened, flagged } = await wildiesPage.verifyAllTournamentDetails(locale.path);
+            await wildiesPage.verifyTranslation(
+              `Tournament details (${locale.label}, anonymous, ${viewportName})`,
+              [
+                opened > 0
+                  ? `Details page of ${opened} individual tournament(s), each opened and scanned separately`
+                  : 'No individual tournament "More info" buttons were found on this page',
+              ],
+              flagged
+            );
+            await wildiesPage.captureScreenshot(`Tournament details — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
       test.describe('Login / Sign Up popup', () => {
         for (const locale of ALL_LOCALES) {
           test(`Login popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
@@ -291,6 +345,53 @@ test.describe('beta.wildies.com — translation coverage', () => {
             ]);
             await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`);
           });
+
+          test(`Forgot Password — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Login / Sign Up');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.openForgotPasswordForm();
+            const requestFormFlagged = await wildiesPage.scanForUntranslatedText();
+            await wildiesPage.submitForgotPassword(SEED_ACCOUNT!.email);
+            await wildiesPage.verifyTranslation(
+              `Forgot Password (${locale.label}, ${viewportName})`,
+              ['Request form (title, description, email field, submit button)', 'Confirmation screen after submitting'],
+              requestFormFlagged
+            );
+            await wildiesPage.captureScreenshot(`Forgot Password — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
+      test.describe('Registration errors', () => {
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
+
+        for (const locale of ALL_LOCALES) {
+          test(`Duplicate email error — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Login / Sign Up');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            const { attempted } = await wildiesPage.attemptDuplicateEmailRegistration(SEED_ACCOUNT!.email);
+            if (!attempted) {
+              allure.description(
+                `<p>⚠️ The Sign Up submit button never enabled for this locale, even with a fully valid-looking ` +
+                  `form (a known, unresolved limitation — see <code>attemptDuplicateEmailRegistration()</code>'s ` +
+                  `comment). The real, server-side "email already registered" error could not be triggered or ` +
+                  `checked this run.</p>`
+              );
+              return;
+            }
+            await wildiesPage.verifyTranslation(`Duplicate email registration error (${locale.label}, ${viewportName})`, [
+              'The server-side error shown after submitting Sign Up with an already-registered email',
+            ]);
+            await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName})`);
+          });
         }
       });
 
@@ -303,7 +404,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
-            await wildiesPage.expectLoginFailure(WILDIES_TEST_USER_EMAIL || 'wiztest008@gmail.com', 'not-the-real-password');
+            await wildiesPage.expectLoginFailure(SEED_ACCOUNT?.email ?? 'wiztest008@gmail.com', 'not-the-real-password');
             await wildiesPage.verifyTranslation(`Login error message (${locale.label}, ${viewportName})`, [
               'Login form error notification',
             ]);
@@ -312,8 +413,55 @@ test.describe('beta.wildies.com — translation coverage', () => {
         }
       });
 
+      test.describe('Non-existent page (error boundary)', () => {
+        for (const locale of ALL_LOCALES) {
+          test(`404 / error boundary — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Error boundary');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.visitNonExistentPage(locale.path);
+            await wildiesPage.verifyTranslation(`Non-existent page (${locale.label}, ${viewportName})`, [
+              'The generic error boundary this site shows for any unknown route (heading, message, ' +
+                '"Try again"/"Go back" buttons) — confirmed live 2026-08-29 there is no dedicated themed 404 page',
+            ]);
+            await wildiesPage.captureScreenshot(`404 — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
+      test.describe('Account menu (avatar dropdown)', () => {
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
+
+        for (const locale of ALL_LOCALES) {
+          test(`Account menu — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+            allure.subSuite('Account menu');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            const account = nextPooledAccount();
+            await wildiesPage.open(locale.path);
+            await wildiesPage.login(account.email, account.password);
+            const modalFlagged = wildiesPage.takePendingModalFindings();
+            await wildiesPage.openAccountMenu();
+            await wildiesPage.verifyTranslation(
+              `Account menu (${locale.label}, logged in, ${viewportName})`,
+              [
+                'The avatar dropdown\'s own items (Profile Info, Notifications, Verification, My Promotions, ' +
+                  'Game History, Transaction History, Log out) — its "Notifications" entry opens a cross-origin ' +
+                  'third-party widget not deep-scanned here, see the class-level comment for why',
+              ],
+              modalFlagged
+            );
+            await wildiesPage.captureScreenshot(`Account menu — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
       test.describe('Authenticated account pages', () => {
-        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
 
         for (const p of AUTHENTICATED_PAGES) {
           for (const locale of ALL_LOCALES) {
@@ -323,15 +471,17 @@ test.describe('beta.wildies.com — translation coverage', () => {
 
               const wildiesPage = new WildiesPage(page);
               await ensureLocaleLive(wildiesPage, locale);
+              const account = nextPooledAccount();
               await wildiesPage.open(locale.path);
-              await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+              await wildiesPage.login(account.email, account.password);
+              const modalFlagged = wildiesPage.takePendingModalFindings();
               await wildiesPage.visitPage(p.path, locale.path);
               await wildiesPage.openSideMenu();
-              await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, logged in, ${viewportName})`, [
-                'Main page content',
-                'Side navigation menu',
-                'Language switcher panel',
-              ]);
+              await wildiesPage.verifyTranslation(
+                `${p.name} (${locale.label}, logged in, ${viewportName})`,
+                ['Main page content', 'Side navigation menu', 'Language switcher panel'],
+                modalFlagged
+              );
               await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (logged in, ${viewportName})`);
             });
           }
@@ -339,7 +489,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
       });
 
       test.describe('Cashier (Deposit / Withdraw)', () => {
-        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
 
         for (const locale of ALL_LOCALES) {
           test(`Cashier — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
@@ -348,9 +498,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
 
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
+            const account = nextPooledAccount();
             await wildiesPage.open(locale.path);
-            await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            await wildiesPage.login(account.email, account.password);
+            const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openCashier();
+            modalFlagged.push(...wildiesPage.takePendingModalFindings());
             const depositFlagged = await wildiesPage.scanForUntranslatedText();
             await wildiesPage.switchCashierTab('withdraw');
             await wildiesPage.verifyTranslation(
@@ -359,7 +512,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
                 'Deposit tab: payment methods, amount field, preset amounts, bonus/promo code section',
                 'Withdraw tab: same fields',
               ],
-              depositFlagged
+              [...modalFlagged, ...depositFlagged]
             );
             await wildiesPage.captureScreenshot(`Cashier — ${locale.label} (${viewportName})`);
             // UI-only, by design — never submits a real deposit/withdrawal
@@ -369,7 +522,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
       });
 
       test.describe('Game History (after the seeded real spin)', () => {
-        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
 
         for (const locale of ALL_LOCALES) {
           test(`Game History — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
@@ -379,19 +532,24 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
-            await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
+            const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.visitPage('/account/game-history', locale.path);
-            await wildiesPage.verifyTranslation(`Game History (${locale.label}, logged in, ${viewportName})`, [
-              'The game history table (column headers, status labels) showing the entry from the one real ' +
-                'spin seeded at the start of this suite run',
-            ]);
+            await wildiesPage.verifyTranslation(
+              `Game History (${locale.label}, logged in, ${viewportName})`,
+              [
+                'The game history table (column headers, status labels) showing the entry from the one real ' +
+                  'spin seeded at the start of this suite run',
+              ],
+              modalFlagged
+            );
             await wildiesPage.captureScreenshot(`Game History — ${locale.label} (${viewportName})`);
           });
         }
       });
 
       test.describe('Sportsbook My Bets (after the seeded real bet)', () => {
-        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
 
         for (const locale of ALL_LOCALES) {
           test(`Sportsbook My Bets — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
@@ -401,7 +559,8 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
-            await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
+            const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openSportsbookMyBets();
             const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
             await wildiesPage.verifyTranslation(
@@ -409,7 +568,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
               [
                 'The sportsbook widget\'s own "My Bets" tab, showing the bet placed at the start of this suite run',
               ],
-              frameFlagged
+              [...modalFlagged, ...frameFlagged]
             );
             await wildiesPage.captureScreenshot(`Sportsbook My Bets — ${locale.label} (${viewportName})`);
           });

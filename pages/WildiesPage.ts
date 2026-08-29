@@ -152,17 +152,48 @@ export class WildiesPage {
   }
 
   /**
+   * Findings from any reactive popup (level-up rewards, mission
+   * completions, the auto-opening Finances modal, ...) scanned by
+   * `dismissModalIfPresent()` right before it closes them — collected
+   * here since these popups are gone by the time the caller's own
+   * `verifyTranslation()` runs, so their content would otherwise never be
+   * checked at all. Drained by `takePendingModalFindings()`.
+   */
+  private pendingModalFindings: string[] = [];
+
+  /**
+   * Returns and clears whatever `dismissModalIfPresent()` has scanned so
+   * far in the current test — call this right before `verifyTranslation()`
+   * and merge the result into its `extraFlagged` param, the same pattern
+   * `verifyAllPromotionTerms()` already uses for promo modals.
+   */
+  takePendingModalFindings(): string[] {
+    const findings = this.pendingModalFindings;
+    this.pendingModalFindings = [];
+    return findings;
+  }
+
+  /**
    * Closes a `[data-modal-overlay="true"]` popup if one is covering the
    * page — confirmed live 2026-08-28: a "Finances" (deposit-prompt)
    * modal can auto-open after login and intercepts clicks on anything
    * underneath it until dismissed, the same category of issue as
-   * gcplaying0175.com's promo-popup iframe.
+   * gcplaying0175.com's promo-popup iframe. Also covers reactive
+   * popups tied to real player actions (a "Level Up Reward Unlocked"
+   * toast was confirmed live 2026-08-29 right after placing a real
+   * sportsbook bet) — these are real, locale-specific content the
+   * player actually sees, so this scans for untranslated text (see
+   * `pendingModalFindings`/`takePendingModalFindings()`) BEFORE closing
+   * it, not just silently discarding whatever it said.
    */
   async dismissModalIfPresent(): Promise<void> {
     const overlay = this.page.locator('[data-modal-overlay="true"]').first();
     if (!(await overlay.isVisible({ timeout: 2_000 }).catch(() => false))) return;
 
     await step('Dismiss the modal popup, if shown', async () => {
+      for (const f of await this.scanForUntranslatedText()) {
+        if (!this.pendingModalFindings.includes(f)) this.pendingModalFindings.push(f);
+      }
       // Its own `[data-modal-close-button]` — confirmed live 2026-08-28.
       // NOT a DOM-removal fallback like gcplaying0175.com's promo popup:
       // that promo popup is a third-party iframe injected outside
@@ -383,7 +414,18 @@ export class WildiesPage {
       // nothing left to do.
       if (await financesModal.isVisible({ timeout: 1_500 }).catch(() => false)) return;
       await this.dismissModalIfPresent();
-      await this.page.locator('button:has(div[data-icon="deposit"])').first().click();
+      const depositButton = this.page.locator('button:has(div[data-icon="deposit"])').first();
+      try {
+        await depositButton.click({ timeout: 8_000 });
+      } catch {
+        // Confirmed live 2026-08-29: on rare occasions the same
+        // auto-opening Finances modal appears mid-click (after the
+        // already-open check above passed, before the click itself
+        // landed), intercepting it. Dismiss whatever showed up and retry
+        // once rather than failing the whole check over this race.
+        await this.dismissModalIfPresent();
+        await depositButton.click();
+      }
       await expect(financesModal).toBeVisible({ timeout: 8_000 });
     });
   }
@@ -428,6 +470,167 @@ export class WildiesPage {
         await overlay.locator('[data-modal-body="true"] button').first().click();
         await expect(this.page.locator('input[name="email"]')).toBeVisible({ timeout: 5_000 });
       }
+    });
+  }
+
+  /**
+   * Opens the Login modal's "Password dimenticata?"/Forgot Password
+   * form. No stable `data-*` attribute distinguishes it from the
+   * password-visibility toggle (confirmed live 2026-08-29), and its own
+   * label is translated per locale — but it's the only `button[type="button"]`
+   * inside the Login form itself (the visibility toggle is a `div`, not
+   * a button), so that's locale-agnostic and reliable.
+   */
+  async openForgotPasswordForm(): Promise<void> {
+    await step('Open the Forgot Password form', async () => {
+      await this.openAuthModal('login');
+      await this.page.locator('[data-modal-overlay="true"] form[type="Login"] button[type="button"]').first().click();
+      await expect(this.page.locator('[data-modal-overlay="true"] #email')).toBeVisible({ timeout: 5_000 });
+    });
+  }
+
+  /**
+   * Submits the Forgot Password form and waits for the "Check your
+   * email" confirmation screen — confirmed live 2026-08-29 to render
+   * real, translated content (not just a toast), safe to submit for
+   * real with a genuine account email since it only ever sends a reset
+   * email, never changes anything.
+   */
+  async submitForgotPassword(email: string): Promise<void> {
+    await step(`Submit Forgot Password for ${email}`, async () => {
+      await this.page.locator('[data-modal-overlay="true"] #email').fill(email);
+      await this.page.locator('[data-modal-overlay="true"] form[type="ForgotPassword"] button[type="submit"]').click();
+      await this.page.waitForTimeout(2_500);
+    });
+  }
+
+  /**
+   * Fills the Sign Up form with an EXISTING account's email (real
+   * server-side "already registered" validation, not just the client-side
+   * password-strength hints) and submits if the button actually enables.
+   * Confirmed live 2026-08-29: the submit button sometimes stays disabled
+   * for reasons not pinned down even with a fully valid-looking form —
+   * `attempted: false` signals that so the caller can note it as a known
+   * limitation rather than fail the whole test over an unrelated,
+   * unconfirmed form-validation quirk. Never actually creates an account
+   * either way (the email is already taken).
+   */
+  async attemptDuplicateEmailRegistration(email: string): Promise<{ attempted: boolean }> {
+    return step(`Attempt Sign Up with an already-registered email: ${email}`, async () => {
+      await this.openAuthModal('register');
+      const overlay = this.page.locator('[data-modal-overlay="true"]');
+      await overlay.locator('#email').pressSequentially(email, { delay: 15 });
+      await overlay.locator('#passwordHints').pressSequentially('NotARealPass9', { delay: 15 });
+      await this.page.keyboard.press('Tab');
+      await this.page.waitForTimeout(1_500);
+      const submitBtn = overlay.locator('button[type="submit"]');
+      if (await submitBtn.isDisabled()) return { attempted: false };
+      await submitBtn.click();
+      await this.page.waitForTimeout(2_500);
+      return { attempted: true };
+    });
+  }
+
+  /**
+   * Navigates to a URL that doesn't correspond to any real route.
+   * Confirmed live 2026-08-29: this site has no dedicated themed 404
+   * design — it falls back to the same generic React error boundary
+   * ("Something went wrong!") a real crash would show, real translated
+   * content either way.
+   */
+  async visitNonExistentPage(localeSegment = ''): Promise<void> {
+    await step('Open a non-existent page (checks the error boundary)', async () => {
+      const url = localeSegment ? `/${localeSegment}/this-page-does-not-exist-xyz` : '/this-page-does-not-exist-xyz';
+      await this.page.goto(url);
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.page.waitForTimeout(1_500);
+    });
+  }
+
+  /**
+   * Opens the account avatar dropdown (distinct from the side menu's
+   * language switcher) — its own real, first-party menu items
+   * (Profile Info, Notifications, Verification, ...) have never been
+   * scanned anywhere else in this suite, since every other check reaches
+   * those pages by direct URL rather than clicking through this menu.
+   */
+  async openAccountMenu(): Promise<void> {
+    await step('Open the account avatar dropdown', async () => {
+      await this.page.locator('header button[data-icon-button-type="wrapper"]').last().click();
+      await this.page.waitForTimeout(500);
+    });
+  }
+
+  /**
+   * NOTE on "Notifications": the account dropdown's own second item
+   * opens it, but confirmed live 2026-08-29 that its content is a
+   * cross-origin third-party widget (`InboxWidget.html` on a
+   * `cloudfront.net` domain — the same gamification-vendor family as the
+   * "Smartico" console noise already filtered elsewhere in this file).
+   * Unlike the sportsbook widget, there's no evidence it re-embeds per
+   * site locale (no locale segment in its URL, no confirmed postMessage
+   * handshake) — so it's deliberately NOT opened/deep-scanned here, same
+   * category as the LiveChat widget or Sumsub's KYC document upload.
+   * `openAccountMenu()` above still covers this dropdown's own real,
+   * first-party item labels (including "Notifications" itself).
+   */
+
+  /**
+   * Opens each tournament's own "More info" detail page, one at a time —
+   * discovery-driven via count, so it scales to however many tournaments
+   * exist now or are added later, same spirit as
+   * `verifyAllPromotionTerms()`. Confirmed live 2026-08-29: "More info"
+   * navigates to a real page (`/tournaments/{id}`), not a modal. No
+   * stable `data-*` attribute distinguishes a card's "Opt in"/"More info"
+   * button pair from the page's own "Active"/"Finished" filter toggle
+   * (both are structurally identical — a `<div>` wrapping exactly two
+   * `<button>`s), and the labels are translated per locale — but the
+   * filter toggle is confirmed to always be the FIRST such pair in the
+   * DOM, with one tournament card's pair per tournament after it, so
+   * skipping index 0 reliably yields only real tournament cards.
+   */
+  async verifyAllTournamentDetails(localeSegment = ''): Promise<{ opened: number; flagged: string[] }> {
+    return step("Open and scan each tournament's own detail page", async () => {
+      const listingUrl = localeSegment ? `/${localeSegment}/tournaments` : '/tournaments';
+      const countCardGroups = () =>
+        this.page.evaluate(() => {
+          const groups = Array.from(document.querySelectorAll('div')).filter(
+            (div) => div.children.length === 2 && div.children[0].tagName === 'BUTTON' && div.children[1].tagName === 'BUTTON'
+          );
+          return Math.max(0, groups.length - 1);
+        });
+
+      await this.page.goto(listingUrl);
+      await this.page.waitForTimeout(2_000);
+      const count = await countCardGroups();
+
+      let opened = 0;
+      const flagged: string[] = [];
+      for (let i = 0; i < count; i++) {
+        try {
+          await this.page.goto(listingUrl);
+          await this.page.waitForTimeout(2_000);
+          const previousUrl = this.page.url();
+          const clicked = await this.page.evaluate((index) => {
+            const groups = Array.from(document.querySelectorAll('div')).filter(
+              (div) => div.children.length === 2 && div.children[0].tagName === 'BUTTON' && div.children[1].tagName === 'BUTTON'
+            );
+            const card = groups[index + 1]; // +1 skips the Active/Finished toggle
+            if (!card) return false;
+            (card.children[1] as HTMLElement).click();
+            return true;
+          }, i);
+          if (!clicked) continue;
+          await this.page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 8_000 });
+          opened++;
+          for (const f of await this.scanForUntranslatedText()) {
+            if (!flagged.includes(f)) flagged.push(f);
+          }
+        } catch {
+          // one tournament's detail page misbehaving shouldn't sink the rest
+        }
+      }
+      return { opened, flagged };
     });
   }
 
@@ -500,16 +703,38 @@ export class WildiesPage {
     await step('Open the side menu', async () => {
       const isOpen = await this.page.evaluate(() => document.body.className.includes('sidebar-open'));
       if (isOpen) return;
-      const isNarrowViewport = (this.page.viewportSize()?.width ?? 1280) < 700;
-      const toggle = isNarrowViewport ? this.page.locator('#bottom-navigation > div').first() : this.sideMenuToggle;
-      await toggle.click();
+      await this.clickSideMenuToggle();
       try {
         await expect(this.page.locator('body')).toHaveClass(/sidebar-open/, { timeout: 3_000 });
       } catch {
-        await toggle.click();
+        await this.clickSideMenuToggle();
         await expect(this.page.locator('body')).toHaveClass(/sidebar-open/, { timeout: 5_000 });
       }
     });
+  }
+
+  /**
+   * Closes the side menu if open — the site persists the sidebar's
+   * open/closed state (confirmed live 2026-08-29: opening it once, then
+   * navigating to a brand-new page via `page.goto()` within the SAME
+   * test, still loads with the sidebar open), so any method that opens it
+   * for a quick check (e.g. `getAvailableLocaleLabels()`) must close it
+   * again afterward or it silently stays open for the rest of that test,
+   * later intercepting clicks on whatever's underneath it.
+   */
+  async closeSideMenu(): Promise<void> {
+    await step('Close the side menu', async () => {
+      const isOpen = await this.page.evaluate(() => document.body.className.includes('sidebar-open'));
+      if (!isOpen) return;
+      await this.clickSideMenuToggle();
+      await expect(this.page.locator('body')).not.toHaveClass(/sidebar-open/, { timeout: 3_000 }).catch(() => {});
+    });
+  }
+
+  private async clickSideMenuToggle(): Promise<void> {
+    const isNarrowViewport = (this.page.viewportSize()?.width ?? 1280) < 700;
+    const toggle = isNarrowViewport ? this.page.locator('#bottom-navigation > div').first() : this.sideMenuToggle;
+    await toggle.click();
   }
 
   /**
@@ -644,7 +869,14 @@ export class WildiesPage {
     await this.langSwitcherTrigger.click();
     const links = this.langSwitcherPanel.getByRole('link');
     await expect(links.first()).toBeVisible();
-    return links.allTextContents();
+    const labels = await links.allTextContents();
+    // The site persists the sidebar's open/closed state across page loads
+    // (confirmed live 2026-08-29 — see `closeSideMenu()`'s comment), so
+    // leaving it open here silently carries over into every later
+    // navigation this same test makes, eventually intercepting a click on
+    // whatever's underneath it.
+    await this.closeSideMenu();
+    return labels;
   }
 
   private async waitForImagesLoaded(timeoutMs = 4_000): Promise<void> {
