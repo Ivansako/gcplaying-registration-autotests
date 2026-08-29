@@ -90,6 +90,12 @@ const SUITES = [
     sub: 'Locale switching across all live languages, plus self-skipping checks for German/Finnish/Spanish/Swedish/Norwegian ahead of their rollout',
     category: 'localization',
   },
+  {
+    value: 'wildies-translation-coverage',
+    label: 'Translation coverage — beta.wildies.com',
+    sub: 'Every page, the Cashier, Login/Sign Up, a real slot spin + sportsbook bet, and Game/Bet History — desktop + mobile, all live languages, red-or-green only',
+    category: 'localization',
+  },
   { value: 'all', label: 'All suites', sub: 'Everything above', category: 'all' },
 ];
 

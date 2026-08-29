@@ -1,4 +1,4 @@
-import { expect, Locator, Page } from '@playwright/test';
+import { expect, FrameLocator, Locator, Page } from '@playwright/test';
 import { attachment, descriptionHtml, logStep, step } from 'allure-js-commons';
 import { ContentType, Status } from 'allure-js-commons';
 import { formatConsoleErrors, recordIssue } from '../utils/issueTracker';
@@ -211,21 +211,224 @@ export class WildiesPage {
   }
 
   /**
-   * NOT YET IMPLEMENTED — placeholder, returns `false` always. Actually
-   * placing a real minimum-bet spin needs the same one-time manual
-   * coordinate investigation gcplaying0175.com's `spinKnownGame()`
-   * needed for its own pre-confirmed game (bet/spin controls render on
-   * an opaque `<canvas>` inside a cross-origin iframe with no accessible
-   * DOM — coordinate-based is the only option, and blind/unconfirmed
-   * coordinates on a real-money-adjacent control aren't safe to guess).
-   * beta.wildies.com became unreachable (Cloudflare Access) partway
-   * through building this suite, 2026-08-28, before this could be
-   * confirmed live. Callers must treat a `false` return as "no fresh
-   * spin was placed this run" and adjust what they check/report
-   * accordingly, not assume a spin happened.
+   * Places ONE real, minimum-bet spin on a specific, pre-confirmed game
+   * ("Better Barn House Bonanza" by Pragmatic Play, `/game/real/63385` —
+   * literally the first game link on the casino lobby the day this was
+   * investigated, 2026-08-29) and reports the balance before/after. Same
+   * constraint as gcplaying0175.com's `AccountPage.spinKnownGame()`: the
+   * game's own bet/spin controls render on an opaque `<canvas>` with no
+   * accessible DOM, so this is coordinate-based, confirmed live only at
+   * a 1280x800 viewport (callers MUST pin
+   * `test.use({ viewport: { width: 1280, height: 800 } })` — a different
+   * size shifts every coordinate below).
+   *
+   * Deliberately called ONCE per suite run, not once per locale: the
+   * point is to seed one real Game History row, then let every
+   * locale/viewport combination check that SAME row's translated labels
+   * via plain navigation (`visitPage('/account/game-history', locale)`)
+   * — re-spinning per locale would multiply real-money spends for no
+   * extra signal, since the spin's own data doesn't change per locale,
+   * only the labels/date formatting around it do.
+   *
+   * Flow confirmed live 2026-08-29: launch → an intro/splash screen
+   * (game art + a round icon) needs one click to reach the reels → the
+   * default bet (€2.00) is reduced to this game's €0.20 minimum by
+   * clicking "-" until it floors (opens a "Bet Multiplier" panel as a
+   * side effect, closed via its own X) → one spin click → the header
+   * balance dropped from €99.89 to €99.69, confirming a real spin.
    */
-  async spinMinimumBet(): Promise<boolean> {
-    return false;
+  async spinFirstAvailableGame(): Promise<{ balanceBefore: string; balanceAfter: string }> {
+    return step('Launch the first available slot and place one real minimum-bet spin', async () => {
+      await this.dismissModalIfPresent();
+      const balanceBefore = await this.getBalanceText();
+
+      const gameLink = this.page.locator('a[href="/game/real/63385"]').first();
+      await gameLink.click();
+      await this.page.waitForTimeout(20_000); // provider splash/loading screen
+
+      await this.dismissModalIfPresent();
+
+      // Intro/splash screen — one click on its round icon to reach the reels.
+      await this.page.mouse.click(1008, 616);
+      await this.page.waitForTimeout(4_000);
+
+      // Reduce the bet to this game's minimum via the "-" control.
+      for (let i = 0; i < 25; i++) {
+        await this.page.mouse.click(886, 731);
+        await this.page.waitForTimeout(150); // human-speed, not a rapid-fire click storm
+      }
+      await this.page.waitForTimeout(500);
+      // Closes the "Bet Multiplier" panel the clicks above opened.
+      await this.page.mouse.click(1113, 193);
+      await this.page.waitForTimeout(1_000);
+
+      await this.page.mouse.click(984, 731); // spin
+      await this.page.waitForTimeout(6_000); // let the reels finish and the balance settle
+
+      await this.page.goto('/');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissModalIfPresent();
+      const balanceAfter = await this.getBalanceText();
+      return { balanceBefore, balanceAfter };
+    });
+  }
+
+  /**
+   * Places ONE real, minimum-stake bet on the sportsbook (`/sport`) and
+   * reports which event it landed on. Same "seed once, check per locale
+   * via navigation" reasoning as `spinFirstAvailableGame()` — see that
+   * method's comment.
+   *
+   * The sportsbook itself is a cross-origin third-party widget
+   * (`iframe[src*="88wplay"]`, confirmed live 2026-08-29 to genuinely
+   * re-embed in the site's own locale — `/en/spbk`, `/fr/spbk`, even a
+   * differently-coded `/gr/spbk` for Greek — so this IS real, checkable
+   * brand-adjacent content, not an opaque third-party black box like the
+   * slot games). Unlike the slots, this iframe's odds/bet-slip controls
+   * are REAL accessible DOM (`.master_fe_Selections_selection` odds
+   * buttons, `#counter` stake input, `#place-bets` submit), not a canvas
+   * — so this is locator-based, not coordinate-based, and should keep
+   * working across viewports/minor layout changes.
+   *
+   * Deliberately picks a NON-LIVE (pre-match) event: confirmed live that
+   * a LIVE match's odds can be invalidated by a live score/odds change
+   * the moment they shift, silently clearing the pick from the slip
+   * before the bet is even placed. Finds AND clicks the button in a
+   * single `evaluate()` call rather than finding an index then clicking
+   * `.nth(index)` separately — the two-step version raced against this
+   * page's constant live re-rendering and clicked the wrong element on
+   * the first attempt.
+   */
+  async placeMinimumSportsbookBet(): Promise<{ event: string | null }> {
+    return step('Place one real minimum-stake sportsbook bet, human speed', async () => {
+      await this.page.goto('/sport');
+      await this.page.waitForTimeout(8_000); // the widget iframe is slow to hydrate
+
+      const frame = this.page.frameLocator('iframe[src*="88wplay"]');
+      await frame.locator('.master_fe_Selections_selection').first().waitFor({ timeout: 15_000 });
+
+      const picked = await frame.locator('body').evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll('.master_fe_Selections_selection')) as HTMLElement[];
+        for (const btn of buttons) {
+          let card: Element | null = btn;
+          let isLive = false;
+          for (let d = 0; d < 8 && card; d++) {
+            if (/live/i.test(card.textContent?.slice(0, 30) ?? '')) isLive = true;
+            card = card.parentElement;
+          }
+          if (!isLive) {
+            const text = btn.textContent;
+            btn.click();
+            return text;
+          }
+        }
+        return null;
+      });
+      if (!picked) return { event: null };
+
+      await this.page.waitForTimeout(2_000); // human-speed pause, let the slip settle
+      await frame.locator('#place-bets').click();
+      await this.page.waitForTimeout(4_000); // human-speed pause, let the confirmation render
+
+      // A loyalty/reward popup (e.g. "Level Up Reward Unlocked") can
+      // appear right after a bet, on top of the whole page — same
+      // overlay system as every other modal in this app.
+      await this.dismissModalIfPresent();
+
+      return { event: picked };
+    });
+  }
+
+  /**
+   * Opens the sportsbook widget's own "My Bets" tab — the translated bet
+   * history this suite checks after `placeMinimumSportsbookBet()` has
+   * seeded one. Navigation-only, no new bet placed.
+   */
+  async openSportsbookMyBets(): Promise<void> {
+    await step('Open the sportsbook "My Bets" tab', async () => {
+      await this.page.goto('/sport');
+      await this.page.waitForTimeout(8_000);
+      const frame = this.page.frameLocator('iframe[src*="88wplay"]');
+      const myBetsTab = frame.locator('.betslip_fe_ModernTab_modernTab__title', { hasText: 'My Bets' });
+      // Always click "Bet Slip" first, unconditionally, on both
+      // viewports: on mobile this taps the floating toggle that expands
+      // the panel out from behind the site's own fixed bottom nav
+      // (confirmed live 2026-08-29 — without this the panel stays
+      // collapsed and `force`-clicking "My Bets" anyway hit-tests through
+      // to the real, topmost element at that pixel, the bottom nav's
+      // "Casino" link, navigating away instead); on desktop it's simply
+      // the already-active tab label, a harmless no-op re-select.
+      await frame.getByText('Bet Slip', { exact: true }).first().click();
+      await this.page.waitForTimeout(2_000);
+      await myBetsTab.click();
+      await this.page.waitForTimeout(3_000);
+    });
+  }
+
+  /**
+   * Opens the "Cassa"/Cashier modal (`data-modal="Finances"` — the same
+   * modal `dismissModalIfPresent()` already knows how to close) via the
+   * header's Deposit button. Matched by its icon (`data-icon="deposit"`),
+   * not its translated label ("Deposita" in Italian, confirmed live
+   * 2026-08-29), so this works regardless of locale.
+   */
+  async openCashier(): Promise<void> {
+    await step('Open the Cashier (Deposit/Withdraw) modal', async () => {
+      const financesModal = this.page.locator('[data-modal-overlay="true"][data-modal="Finances"]');
+      // The same auto-opening "Finances" modal `dismissModalIfPresent()`
+      // closes elsewhere can instead appear a beat AFTER login (confirmed
+      // live 2026-08-29 on a mobile viewport) — right as this method's own
+      // dismiss-then-click runs, leaving it open and blocking the click on
+      // the header's own deposit trigger. If it's already open, there's
+      // nothing left to do.
+      if (await financesModal.isVisible({ timeout: 1_500 }).catch(() => false)) return;
+      await this.dismissModalIfPresent();
+      await this.page.locator('button:has(div[data-icon="deposit"])').first().click();
+      await expect(financesModal).toBeVisible({ timeout: 8_000 });
+    });
+  }
+
+  /**
+   * Switches the open Cashier modal between its two tabs. Same
+   * "first two buttons inside the modal body are the two tabs, in a
+   * fixed order" pattern this app uses consistently (the Login/Sign Up
+   * modal's "Registrati"/"Accedi" tabs work identically) — index-based
+   * on purpose since the labels ("Deposita"/"Preleva") are translated
+   * and can't be matched by text across every locale.
+   */
+  async switchCashierTab(tab: 'deposit' | 'withdraw'): Promise<void> {
+    await step(`Switch Cashier to: ${tab}`, async () => {
+      const idx = tab === 'deposit' ? 0 : 1;
+      await this.page
+        .locator('[data-modal-overlay="true"][data-modal="Finances"] [data-modal-body="true"] button')
+        .nth(idx)
+        .click();
+      await this.page.waitForTimeout(500);
+    });
+  }
+
+  /**
+   * Opens the Login/Sign Up modal, optionally switching straight to the
+   * Sign Up tab. It opens on the Login tab by default (confirmed live
+   * 2026-08-29 — "Accedi" carries the active-tab class initially), same
+   * hydration-race retry as `submitLoginForm()`.
+   */
+  async openAuthModal(tab: 'login' | 'register' = 'login'): Promise<void> {
+    await step(`Open the ${tab === 'register' ? 'Sign Up' : 'Login'} modal`, async () => {
+      const headerButtons = this.page.locator('button[data-header-button]');
+      const overlay = this.page.locator('[data-modal-overlay="true"]');
+      await headerButtons.first().click();
+      try {
+        await overlay.waitFor({ timeout: 4_000 });
+      } catch {
+        await headerButtons.first().click();
+        await overlay.waitFor({ timeout: 10_000 });
+      }
+      if (tab === 'register') {
+        await overlay.locator('[data-modal-body="true"] button').first().click();
+        await expect(this.page.locator('input[name="email"]')).toBeVisible({ timeout: 5_000 });
+      }
+    });
   }
 
   /**
@@ -284,16 +487,26 @@ export class WildiesPage {
    * occasionally doesn't register (no console error, no intercepting
    * overlay found; looks like the handler attaches a beat after the icon
    * itself becomes clickable).
+   *
+   * On a narrow (mobile) viewport, confirmed live 2026-08-29: the
+   * header's own burger icon (`sideMenuToggle`) is NOT visible/clickable
+   * — it's replaced by the site's own bottom nav bar, whose first item
+   * ("Menu", confirmed via its `#bottom-navigation` position rather than
+   * its label text since that's translated) opens the exact same
+   * `aside[data-sidemenu="container"]` panel (same `body.sidebar-open`
+   * class toggle, same language switcher inside it).
    */
   async openSideMenu(): Promise<void> {
     await step('Open the side menu', async () => {
       const isOpen = await this.page.evaluate(() => document.body.className.includes('sidebar-open'));
       if (isOpen) return;
-      await this.sideMenuToggle.click();
+      const isNarrowViewport = (this.page.viewportSize()?.width ?? 1280) < 700;
+      const toggle = isNarrowViewport ? this.page.locator('#bottom-navigation > div').first() : this.sideMenuToggle;
+      await toggle.click();
       try {
         await expect(this.page.locator('body')).toHaveClass(/sidebar-open/, { timeout: 3_000 });
       } catch {
-        await this.sideMenuToggle.click();
+        await toggle.click();
         await expect(this.page.locator('body')).toHaveClass(/sidebar-open/, { timeout: 5_000 });
       }
     });
@@ -353,41 +566,71 @@ export class WildiesPage {
    * catching the obvious raw-key case, not perfect translation QA.
    */
   async scanForUntranslatedText(): Promise<string[]> {
-    return this.page.evaluate(() => {
-      const KEY_PATTERNS: RegExp[] = [
-        /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){1,}$/i, // dot.separated.key
-        /^[A-Z][A-Z0-9]*(_[A-Z0-9]+){2,}$/, // SCREAMING_SNAKE_CASE, 3+ segments
-        /\{\{\s*[\w.]+\s*\}\}/, // leftover {{ placeholder }}
-        /^\[object Object\]$/,
-        /^(undefined|null|NaN)$/,
-      ];
-      const DOMAIN_LIKE = /\.(com|io|net|org|co|app|gg)\b/i;
+    return this.page.evaluate(WildiesPage.untranslatedTextScanner);
+  }
 
-      const seen = new Set<string>();
-      const flagged: string[] = [];
-      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-        acceptNode(node) {
-          const text = node.textContent?.trim();
-          if (!text) return NodeFilter.FILTER_REJECT;
-          const parent = node.parentElement;
-          if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
-          const style = getComputedStyle(parent);
-          if (style.display === 'none' || style.visibility === 'hidden') return NodeFilter.FILTER_REJECT;
-          return NodeFilter.FILTER_ACCEPT;
-        },
-      });
+  /**
+   * Same scan as `scanForUntranslatedText()`, run inside a (possibly
+   * cross-origin) iframe instead of the top-level page — needed for the
+   * sportsbook widget (`iframe[src*="88wplay"]`), whose own document
+   * `this.page.evaluate()` can never see. `frame.locator('body').evaluate()`
+   * runs inside the iframe's own execution context, unlike a `page.evaluate()`
+   * from the parent, which cross-origin browser security would block from
+   * reading that document at all.
+   */
+  async scanFrameForUntranslatedText(frame: FrameLocator): Promise<string[]> {
+    return frame.locator('body').evaluate(WildiesPage.untranslatedTextScanner);
+  }
 
-      let node: Node | null;
-      while ((node = walker.nextNode())) {
-        const text = node.textContent!.trim();
-        if (seen.has(text) || DOMAIN_LIKE.test(text)) continue;
-        if (KEY_PATTERNS.some((re) => re.test(text))) {
-          seen.add(text);
-          flagged.push(text);
-        }
-      }
-      return flagged;
+  /**
+   * Pure, self-contained (no closure over `this`/outer scope) so it can be
+   * handed to either `page.evaluate()` or a `FrameLocator`'s `evaluate()`
+   * and serialized into that document's own execution context as-is.
+   */
+  private static readonly untranslatedTextScanner = () => {
+    const KEY_PATTERNS: RegExp[] = [
+      /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){1,}$/i, // dot.separated.key
+      /^[A-Z][A-Z0-9]*(_[A-Z0-9]+){2,}$/, // SCREAMING_SNAKE_CASE, 3+ segments
+      /\{\{\s*[\w.]+\s*\}\}/, // leftover {{ placeholder }}
+      /^\[object Object\]$/,
+      /^(undefined|null|NaN)$/,
+    ];
+    const DOMAIN_LIKE = /\.(com|io|net|org|co|app|gg)\b/i;
+
+    const seen = new Set<string>();
+    const flagged: string[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const text = node.textContent?.trim();
+        if (!text) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        const style = getComputedStyle(parent);
+        if (style.display === 'none' || style.visibility === 'hidden') return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
     });
+
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent!.trim();
+      if (seen.has(text) || DOMAIN_LIKE.test(text)) continue;
+      if (KEY_PATTERNS.some((re) => re.test(text))) {
+        seen.add(text);
+        flagged.push(text);
+      }
+    }
+    return flagged;
+  };
+
+  /**
+   * The sportsbook's cross-origin third-party widget — confirmed live
+   * 2026-08-29 to genuinely re-embed in the site's own locale
+   * (`/en/spbk`, `/fr/spbk`, ...), so its content is real, checkable
+   * brand-adjacent translation, not an opaque third-party black box.
+   */
+  get sportsbookFrame(): FrameLocator {
+    return this.page.frameLocator('iframe[src*="88wplay"]');
   }
 
   /**
@@ -522,13 +765,30 @@ export class WildiesPage {
     await step(`Verify translation completeness: ${pageLabel}`, async () => {
       const pageFlagged = await this.scanForUntranslatedText();
       const flagged = [...pageFlagged, ...extraFlagged.filter((f) => !pageFlagged.includes(f))];
+
+      // A translated string that's longer than its English original is a
+      // common source of mobile layout breakage (German/Finnish especially)
+      // — exactly what the mobile viewport pass exists to catch. Treated as
+      // a content/localization bug (red), not a generic UI finding, since
+      // it's specifically caused by the translated text's length, matching
+      // this suite's own green-or-red-only mandate. A few px is normal
+      // responsive noise, so only flag it once it's clearly a real overflow.
+      const overflowPx = await this.getHorizontalOverflow();
+      if (overflowPx > 20) {
+        flagged.push(
+          `Layout overflow: the page renders ${overflowPx}px wider than the viewport — likely a translated ` +
+            `string that doesn't fit its container at this screen size`
+        );
+      }
+
       const sectionsText = sectionsChecked.length ? ` Sections examined: ${sectionsChecked.join(', ')}.` : '';
       const whatWasChecked =
         `<strong>${pageLabel}</strong> was opened and every visible piece of text on the page — headings, ` +
         'buttons, menu items, form labels, footer links, and any popups/panels opened as part of this check — ' +
         'was scanned for raw, untranslated i18n keys (patterns such as a dot.separated.key, ' +
         'SCREAMING_SNAKE_CASE, a leftover {{ placeholder }}, or a stringified JS value like "undefined" ' +
-        `leaking into the UI).${sectionsText}`;
+        `leaking into the UI), and the page's rendered width was checked against the viewport to catch a ` +
+        `translated string long enough to break the layout.${sectionsText}`;
 
       if (flagged.length === 0) {
         await descriptionHtml(

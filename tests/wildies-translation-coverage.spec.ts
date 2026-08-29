@@ -1,3 +1,4 @@
+import { devices } from '@playwright/test';
 import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
@@ -32,17 +33,35 @@ async function ensureLocaleLive(wildiesPage: WildiesPage, locale: WildiesLocale)
   );
 }
 
+function stripBrowserType(device: (typeof devices)[string]) {
+  const { defaultBrowserType, ...rest } = device;
+  return rest;
+}
+
+// One representative mobile device, not the full 2-device spread
+// `brand-content-pages.spec.ts` uses on gcplaying0175.com — this suite is
+// already large (every page × every locale), and the goal here is
+// specifically to catch a translated string breaking mobile layout, which
+// one mobile viewport is enough to surface.
+const VIEWPORTS = [
+  { name: 'Desktop', config: stripBrowserType(devices['Desktop Chrome']) },
+  { name: 'Mobile (Pixel 7)', config: stripBrowserType(devices['Pixel 7']) },
+];
+
 const WILDIES_TEST_USER_EMAIL = process.env.WILDIES_TEST_USER_EMAIL;
 const WILDIES_TEST_USER_PASSWORD = process.env.WILDIES_TEST_USER_PASSWORD;
+const hasCreds = !!WILDIES_TEST_USER_EMAIL && !!WILDIES_TEST_USER_PASSWORD;
 
 /**
  * beta.wildies.com — translation completeness across the whole brand:
- * every anonymous-access page, then every authenticated account page,
- * checked in every locale currently live PLUS every pending locale
- * (self-skipping until each one actually ships — see `ensureLocaleLive`
- * above), for raw/untranslated text leaking into the UI (see
- * `WildiesPage.verifyTranslation()` for the detection heuristic and how
- * it writes its own Description). Complements
+ * every anonymous-access page, the Cashier, the Login/Sign Up popups, then
+ * every authenticated account page, checked in every locale currently
+ * live PLUS every pending locale (self-skipping until each one actually
+ * ships — see `ensureLocaleLive` above), for raw/untranslated text
+ * leaking into the UI (see `WildiesPage.verifyTranslation()` for the
+ * detection heuristic and how it writes its own Description) AND for a
+ * translated string breaking the page's layout (checked at both a
+ * desktop and a mobile viewport — see `VIEWPORTS` above). Complements
  * `tests/wildies-localizations.spec.ts` (which checks the switcher
  * mechanics itself — URL scheme, dropdown options, `<html lang>` — not
  * page content).
@@ -59,14 +78,27 @@ const WILDIES_TEST_USER_PASSWORD = process.env.WILDIES_TEST_USER_PASSWORD;
  * together, matching how a person would actually want to browse this
  * report.
  *
- * Page catalog confirmed live 2026-08-28 via the anonymous nav, footer,
- * and (logged in as WILDIES_TEST_USER_EMAIL) the account menu. Not
- * exhaustive of literally every URL on the brand — individual game
+ * Real money, spent ONCE per suite run, not once per locale (2026-08-29):
+ * one minimum-bet slot spin and one minimum-stake sportsbook bet are
+ * placed up front (see the "Seed real-money history" block below, pinned
+ * to Desktop), then every locale × viewport combination for Game History
+ * and Sportsbook My Bets just navigates to that already-seeded entry and
+ * checks its labels are translated — the entry's own data doesn't change
+ * per locale, only the labels/date formatting around it do, so re-betting
+ * per locale would only multiply real-money spend for no extra signal.
+ *
+ * Page catalog confirmed live 2026-08-28/29 via the anonymous nav,
+ * footer, and (logged in as WILDIES_TEST_USER_EMAIL) the account menu.
+ * Not exhaustive of literally every URL on the brand — individual game
  * pages and each of the ~50 provider pages are out of scope (third-party
  * content, not this brand's own translations) — but covers every
  * distinct page template a real visitor actually navigates through,
- * including drilling into each promotion's own Terms & Conditions on
- * the Promotions page.
+ * including drilling into each promotion's own Terms & Conditions on the
+ * Promotions page, the sportsbook's own odds/bet-slip widget (a
+ * cross-origin iframe, confirmed to genuinely re-embed in the site's own
+ * locale — real, checkable content, not a third-party black box), and
+ * the Cashier's Deposit/Withdraw tabs (never submitted for real, same
+ * safety pattern as every other form check in this repo).
  */
 
 const ANONYMOUS_PAGES = [
@@ -74,7 +106,6 @@ const ANONYMOUS_PAGES = [
   { path: '/casino', name: 'Casino Lobby' },
   { path: '/live-casino', name: 'Live Casino' },
   { path: '/buy_bonus', name: 'Buy Bonus' },
-  { path: '/sport', name: 'Sportsbook Lobby' },
   { path: '/tournaments', name: 'Tournaments' },
   { path: '/faq', name: 'FAQ' },
   { path: '/contact-us', name: 'Contact Us' },
@@ -101,126 +132,289 @@ test.describe('beta.wildies.com — translation coverage', () => {
     allure.owner('QA Automation');
   });
 
-  for (const p of ANONYMOUS_PAGES) {
-    for (const locale of ALL_LOCALES) {
-      test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
-        allure.subSuite(p.name);
-        allure.severity('normal');
+  // Runs ONCE, before the locale/viewport matrix below, pinned to the
+  // viewport `WildiesPage.spinFirstAvailableGame()`'s coordinates were
+  // confirmed against. Real money — see the class-level comment above for
+  // why this only happens once per run.
+  test.describe('Seed real-money history (runs once, not per locale)', () => {
+    test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+    test.use({ viewport: { width: 1280, height: 800 } });
 
-        const wildiesPage = new WildiesPage(page);
-        await ensureLocaleLive(wildiesPage, locale);
-        await wildiesPage.visitPage(p.path, locale.path);
-        await wildiesPage.openSideMenu(); // opens the nav drawer + language switcher panel too
-        await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, anonymous)`, [
-          'Main page content',
-          'Side navigation menu',
-          'Language switcher panel',
-          'Footer',
-        ]);
-        await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (anonymous)`);
-      });
-    }
-  }
-
-  test.describe('Promotions (including each promotion\'s own Terms & Conditions)', () => {
-    for (const locale of ALL_LOCALES) {
-      test(`Promotions — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
-        allure.subSuite('Promotions');
-        allure.severity('normal');
-
-        const wildiesPage = new WildiesPage(page);
-        await ensureLocaleLive(wildiesPage, locale);
-        await wildiesPage.visitPage('/promotions', locale.path);
-        const { opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
-        await wildiesPage.verifyTranslation(
-          `Promotions (${locale.label}, anonymous)`,
-          [
-            'Promotions listing page',
-            opened > 0
-              ? `Details/Terms & Conditions of ${opened} individual promotion(s), each opened and scanned separately`
-              : 'No individual promotion "More info" buttons were found on this page',
-          ],
-          flagged
-        );
-        await wildiesPage.captureScreenshot(`Promotions — ${locale.label}`);
-      });
-    }
-  });
-
-  test.describe('Authenticated account pages', () => {
-    test.skip(
-      !WILDIES_TEST_USER_EMAIL || !WILDIES_TEST_USER_PASSWORD,
-      'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set'
-    );
-
-    for (const p of AUTHENTICATED_PAGES) {
-      for (const locale of ALL_LOCALES) {
-        test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
-          allure.subSuite(p.name);
-          allure.severity('normal');
-
-          const wildiesPage = new WildiesPage(page);
-          await ensureLocaleLive(wildiesPage, locale);
-          await wildiesPage.open(locale.path);
-          await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
-          await wildiesPage.visitPage(p.path, locale.path);
-          await wildiesPage.openSideMenu();
-          await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, logged in)`, [
-            'Main page content',
-            'Side navigation menu',
-            'Language switcher panel',
-          ]);
-          await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (logged in)`);
-        });
-      }
-    }
-  });
-
-  test.describe('Error messages and notifications', () => {
-    test('Login error — English', { tag: ['@localization', '@translation'] }, async ({ page }) => {
-      allure.subSuite('Login');
-      allure.severity('normal');
+    test('Place one real minimum-bet slot spin', { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+      test.setTimeout(90_000);
+      allure.subSuite('Seed data');
+      allure.severity('critical');
+      allure.description(
+        'Places one real, minimum-bet spin on the first available slot so every locale/viewport can check ' +
+          "Game History's translated labels against a real entry, without each of them placing its own spin."
+      );
 
       const wildiesPage = new WildiesPage(page);
-      await wildiesPage.open('en');
-      await wildiesPage.expectLoginFailure(WILDIES_TEST_USER_EMAIL || 'wiztest008@gmail.com', 'not-the-real-password');
-      await wildiesPage.verifyTranslation('Login error message (English)', ['Login form error notification']);
-      await wildiesPage.captureScreenshot('Login error — English');
+      await wildiesPage.open();
+      await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+      const { balanceBefore, balanceAfter } = await wildiesPage.spinFirstAvailableGame();
+      allure.parameter('Balance before', balanceBefore);
+      allure.parameter('Balance after', balanceAfter);
+      expect(balanceAfter, 'Balance should change after a real spin').not.toBe(balanceBefore);
+    });
+
+    test('Place one real minimum-stake sportsbook bet', { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+      test.setTimeout(60_000);
+      allure.subSuite('Seed data');
+      allure.severity('critical');
+      allure.description(
+        'Places one real, minimum-stake bet on a pre-match sportsbook event so every locale/viewport can check ' +
+          "the sportsbook widget's own \"My Bets\" tab against a real entry, without each of them placing its own bet."
+      );
+
+      const wildiesPage = new WildiesPage(page);
+      await wildiesPage.open();
+      await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+      const { event } = await wildiesPage.placeMinimumSportsbookBet();
+      allure.parameter('Event backed', event ?? 'none found');
+      expect(event, 'A non-live event should have been found and bet on').not.toBeNull();
     });
   });
 
-  test.describe('Real gameplay and Game History', () => {
-    test.skip(
-      !WILDIES_TEST_USER_EMAIL || !WILDIES_TEST_USER_PASSWORD,
-      'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set'
-    );
+  for (const { name: viewportName, config: viewportConfig } of VIEWPORTS) {
+    test.describe(viewportName, () => {
+      test.use({ ...viewportConfig });
 
-    for (const locale of ALL_LOCALES) {
-      test(`Game History after a real spin — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
-        test.setTimeout(75_000);
-        allure.subSuite('Game History (after a real spin)');
-        allure.severity('critical');
+      for (const p of ANONYMOUS_PAGES) {
+        for (const locale of ALL_LOCALES) {
+          test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite(p.name);
+            allure.severity('normal');
 
-        const wildiesPage = new WildiesPage(page);
-        await ensureLocaleLive(wildiesPage, locale);
-        await wildiesPage.open(locale.path);
-        await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.visitPage(p.path, locale.path);
+            await wildiesPage.openSideMenu(); // opens the nav drawer + language switcher panel too
+            await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, anonymous, ${viewportName})`, [
+              'Main page content',
+              'Side navigation menu',
+              'Language switcher panel',
+              'Footer',
+            ]);
+            await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (anonymous, ${viewportName})`);
+          });
+        }
+      }
 
-        const gameLink = page.locator('a[href*="/game/real/"]').first();
-        const href = await gameLink.getAttribute('href');
-        await wildiesPage.launchGame(href!);
-        await wildiesPage.expectGameReachedPlayableState();
-        const spun = await wildiesPage.spinMinimumBet();
+      test.describe("Sportsbook lobby (including the odds widget)", () => {
+        for (const locale of ALL_LOCALES) {
+          test(`Sportsbook Lobby — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Sportsbook Lobby');
+            allure.severity('normal');
 
-        await wildiesPage.visitPage('/account/game-history', locale.path);
-        await wildiesPage.verifyTranslation(`Game History (${locale.label}, logged in)`, [
-          spun
-            ? 'The game history entry produced by the real spin just placed on this page'
-            : "The existing game history list (a fresh spin could not be confirmed this run — see the " +
-              'Description for why; this still validates whatever entries are present)',
-        ]);
-        await wildiesPage.captureScreenshot(`Game History — ${locale.label}`);
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.visitPage('/sport', locale.path);
+            await page.waitForTimeout(8_000); // the widget iframe is slow to hydrate
+            const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
+            // No openSideMenu() here — confirmed live 2026-08-29: this
+            // page type hides the header's burger icon on mobile (its own
+            // bottom nav takes over instead), unlike every other page in
+            // this suite. The side menu itself is already covered by every
+            // other page's check; this test's own focus is the sportsbook
+            // widget.
+            await wildiesPage.verifyTranslation(
+              `Sportsbook Lobby (${locale.label}, anonymous, ${viewportName})`,
+              [
+                'Main page content and navigation',
+                "The odds/events widget itself (sport tabs, match cards, market names) — a cross-origin " +
+                  'third-party widget confirmed to re-embed in this same locale',
+              ],
+              frameFlagged
+            );
+            await wildiesPage.captureScreenshot(`Sportsbook Lobby — ${locale.label} (${viewportName})`);
+          });
+        }
       });
-    }
-  });
+
+      test.describe("Promotions (including each promotion's own Terms & Conditions)", () => {
+        for (const locale of ALL_LOCALES) {
+          test(`Promotions — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Promotions');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.visitPage('/promotions', locale.path);
+            const { opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
+            await wildiesPage.verifyTranslation(
+              `Promotions (${locale.label}, anonymous, ${viewportName})`,
+              [
+                'Promotions listing page',
+                opened > 0
+                  ? `Details/Terms & Conditions of ${opened} individual promotion(s), each opened and scanned separately`
+                  : 'No individual promotion "More info" buttons were found on this page',
+              ],
+              flagged
+            );
+            await wildiesPage.captureScreenshot(`Promotions — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
+      test.describe('Login / Sign Up popup', () => {
+        for (const locale of ALL_LOCALES) {
+          test(`Login popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Login / Sign Up');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.openAuthModal('login');
+            await wildiesPage.verifyTranslation(`Login popup (${locale.label}, ${viewportName})`, [
+              'Login form fields and labels',
+              'Remember me / Forgot password',
+              'Submit and social-login buttons',
+            ]);
+            await wildiesPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`);
+          });
+
+          test(`Sign Up popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Login / Sign Up');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.openAuthModal('register');
+            await wildiesPage.verifyTranslation(`Sign Up popup (${locale.label}, ${viewportName})`, [
+              'Sign Up form fields and labels',
+              'Password strength hints',
+              'Consent checkboxes',
+              'Submit and social-signup buttons',
+            ]);
+            await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
+      test.describe('Error messages and notifications', () => {
+        for (const locale of ALL_LOCALES) {
+          test(`Login error — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            allure.subSuite('Login / Sign Up');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.expectLoginFailure(WILDIES_TEST_USER_EMAIL || 'wiztest008@gmail.com', 'not-the-real-password');
+            await wildiesPage.verifyTranslation(`Login error message (${locale.label}, ${viewportName})`, [
+              'Login form error notification',
+            ]);
+            await wildiesPage.captureScreenshot(`Login error — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
+      test.describe('Authenticated account pages', () => {
+        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+
+        for (const p of AUTHENTICATED_PAGES) {
+          for (const locale of ALL_LOCALES) {
+            test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+              allure.subSuite(p.name);
+              allure.severity('normal');
+
+              const wildiesPage = new WildiesPage(page);
+              await ensureLocaleLive(wildiesPage, locale);
+              await wildiesPage.open(locale.path);
+              await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+              await wildiesPage.visitPage(p.path, locale.path);
+              await wildiesPage.openSideMenu();
+              await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, logged in, ${viewportName})`, [
+                'Main page content',
+                'Side navigation menu',
+                'Language switcher panel',
+              ]);
+              await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (logged in, ${viewportName})`);
+            });
+          }
+        }
+      });
+
+      test.describe('Cashier (Deposit / Withdraw)', () => {
+        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+
+        for (const locale of ALL_LOCALES) {
+          test(`Cashier — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+            allure.subSuite('Cashier');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            await wildiesPage.openCashier();
+            const depositFlagged = await wildiesPage.scanForUntranslatedText();
+            await wildiesPage.switchCashierTab('withdraw');
+            await wildiesPage.verifyTranslation(
+              `Cashier (${locale.label}, logged in, ${viewportName})`,
+              [
+                'Deposit tab: payment methods, amount field, preset amounts, bonus/promo code section',
+                'Withdraw tab: same fields',
+              ],
+              depositFlagged
+            );
+            await wildiesPage.captureScreenshot(`Cashier — ${locale.label} (${viewportName})`);
+            // UI-only, by design — never submits a real deposit/withdrawal
+            // (same safety pattern as every other cashier check in this repo).
+          });
+        }
+      });
+
+      test.describe('Game History (after the seeded real spin)', () => {
+        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+
+        for (const locale of ALL_LOCALES) {
+          test(`Game History — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+            allure.subSuite('Game History');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            await wildiesPage.visitPage('/account/game-history', locale.path);
+            await wildiesPage.verifyTranslation(`Game History (${locale.label}, logged in, ${viewportName})`, [
+              'The game history table (column headers, status labels) showing the entry from the one real ' +
+                'spin seeded at the start of this suite run',
+            ]);
+            await wildiesPage.captureScreenshot(`Game History — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+
+      test.describe('Sportsbook My Bets (after the seeded real bet)', () => {
+        test.skip(!hasCreds, 'WILDIES_TEST_USER_EMAIL / WILDIES_TEST_USER_PASSWORD not set');
+
+        for (const locale of ALL_LOCALES) {
+          test(`Sportsbook My Bets — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+            allure.subSuite('Sportsbook My Bets');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            await wildiesPage.open(locale.path);
+            await wildiesPage.login(WILDIES_TEST_USER_EMAIL!, WILDIES_TEST_USER_PASSWORD!);
+            await wildiesPage.openSportsbookMyBets();
+            const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
+            await wildiesPage.verifyTranslation(
+              `Sportsbook My Bets (${locale.label}, logged in, ${viewportName})`,
+              [
+                'The sportsbook widget\'s own "My Bets" tab, showing the bet placed at the start of this suite run',
+              ],
+              frameFlagged
+            );
+            await wildiesPage.captureScreenshot(`Sportsbook My Bets — ${locale.label} (${viewportName})`);
+          });
+        }
+      });
+    });
+  }
 });
