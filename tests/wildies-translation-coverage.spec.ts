@@ -222,13 +222,18 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage(p.path, locale.path);
             await wildiesPage.openSideMenu(); // opens the nav drawer + language switcher panel too
+            // Screenshot BEFORE the assertion: verifyTranslation() throws on
+            // a real finding, and a screenshot taken only after it would
+            // never run for exactly the tests where visual evidence matters
+            // most (a red/failed one) — confirmed live 2026-08-30 that this
+            // was silently the case for every failing test in the suite.
+            await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (anonymous, ${viewportName})`);
             await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, anonymous, ${viewportName})`, [
               'Main page content',
               'Side navigation menu',
               'Language switcher panel',
               'Footer',
             ]);
-            await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (anonymous, ${viewportName})`);
           });
         }
       }
@@ -250,6 +255,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             // this suite. The side menu itself is already covered by every
             // other page's check; this test's own focus is the sportsbook
             // widget.
+            await wildiesPage.captureScreenshot(`Sportsbook Lobby — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Sportsbook Lobby (${locale.label}, anonymous, ${viewportName})`,
               [
@@ -259,7 +265,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               frameFlagged
             );
-            await wildiesPage.captureScreenshot(`Sportsbook Lobby — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -274,6 +279,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage('/promotions', locale.path);
             const { opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
+            await wildiesPage.captureScreenshot(`Promotions — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Promotions (${locale.label}, anonymous, ${viewportName})`,
               [
@@ -284,7 +290,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               flagged
             );
-            await wildiesPage.captureScreenshot(`Promotions — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -298,6 +303,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             const { opened, flagged } = await wildiesPage.verifyAllTournamentDetails(locale.path);
+            await wildiesPage.captureScreenshot(`Tournament details — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Tournament details (${locale.label}, anonymous, ${viewportName})`,
               [
@@ -307,7 +313,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               flagged
             );
-            await wildiesPage.captureScreenshot(`Tournament details — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -322,12 +327,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openAuthModal('login');
+            await wildiesPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(`Login popup (${locale.label}, ${viewportName})`, [
               'Login form fields and labels',
               'Remember me / Forgot password',
               'Submit and social-login buttons',
             ]);
-            await wildiesPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`);
           });
 
           test(`Sign Up popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
@@ -338,13 +343,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openAuthModal('register');
+            await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(`Sign Up popup (${locale.label}, ${viewportName})`, [
               'Sign Up form fields and labels',
               'Password strength hints',
               'Consent checkboxes',
               'Submit and social-signup buttons',
             ]);
-            await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`);
           });
 
           test(`Forgot Password — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
@@ -357,12 +362,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.openForgotPasswordForm();
             const requestFormFlagged = await wildiesPage.scanForUntranslatedText();
             await wildiesPage.submitForgotPassword(SEED_ACCOUNT!.email);
+            await wildiesPage.captureScreenshot(`Forgot Password — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Forgot Password (${locale.label}, ${viewportName})`,
               ['Request form (title, description, email field, submit button)', 'Confirmation screen after submitting'],
               requestFormFlagged
             );
-            await wildiesPage.captureScreenshot(`Forgot Password — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -380,18 +385,19 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.open(locale.path);
             const { attempted } = await wildiesPage.attemptDuplicateEmailRegistration(SEED_ACCOUNT!.email);
             if (!attempted) {
+              await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName}, not attempted)`);
               allure.description(
                 `<p>⚠️ The Sign Up submit button never enabled for this locale, even with a fully valid-looking ` +
                   `form (a known, unresolved limitation — see <code>attemptDuplicateEmailRegistration()</code>'s ` +
                   `comment). The real, server-side "email already registered" error could not be triggered or ` +
-                  `checked this run.</p>`
+                  `checked this run — see the attached screenshot for the form's actual state.</p>`
               );
               return;
             }
+            await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(`Duplicate email registration error (${locale.label}, ${viewportName})`, [
               'The server-side error shown after submitting Sign Up with an already-registered email',
             ]);
-            await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -406,10 +412,10 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.expectLoginFailure(SEED_ACCOUNT?.email ?? 'wiztest008@gmail.com', 'not-the-real-password');
+            await wildiesPage.captureScreenshot(`Login error — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(`Login error message (${locale.label}, ${viewportName})`, [
               'Login form error notification',
             ]);
-            await wildiesPage.captureScreenshot(`Login error — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -423,11 +429,11 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitNonExistentPage(locale.path);
+            await wildiesPage.captureScreenshot(`404 — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(`Non-existent page (${locale.label}, ${viewportName})`, [
               'The generic error boundary this site shows for any unknown route (heading, message, ' +
                 '"Try again"/"Go back" buttons) — confirmed live 2026-08-29 there is no dedicated themed 404 page',
             ]);
-            await wildiesPage.captureScreenshot(`404 — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -447,6 +453,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.login(account.email, account.password);
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openAccountMenu();
+            await wildiesPage.captureScreenshot(`Account menu — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Account menu (${locale.label}, logged in, ${viewportName})`,
               [
@@ -456,7 +463,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               modalFlagged
             );
-            await wildiesPage.captureScreenshot(`Account menu — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -478,12 +484,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
               const modalFlagged = wildiesPage.takePendingModalFindings();
               await wildiesPage.visitPage(p.path, locale.path);
               await wildiesPage.openSideMenu();
+              await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (logged in, ${viewportName})`);
               await wildiesPage.verifyTranslation(
                 `${p.name} (${locale.label}, logged in, ${viewportName})`,
                 ['Main page content', 'Side navigation menu', 'Language switcher panel'],
                 modalFlagged
               );
-              await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (logged in, ${viewportName})`);
             });
           }
         }
@@ -507,6 +513,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             modalFlagged.push(...wildiesPage.takePendingModalFindings());
             const depositFlagged = await wildiesPage.scanForUntranslatedText();
             await wildiesPage.switchCashierTab('withdraw');
+            await wildiesPage.captureScreenshot(`Cashier — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Cashier (${locale.label}, logged in, ${viewportName})`,
               [
@@ -515,7 +522,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               [...modalFlagged, ...depositFlagged]
             );
-            await wildiesPage.captureScreenshot(`Cashier — ${locale.label} (${viewportName})`);
             // UI-only, by design — never submits a real deposit/withdrawal
             // (same safety pattern as every other cashier check in this repo).
           });
@@ -536,6 +542,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.visitPage('/account/game-history', locale.path);
+            await wildiesPage.captureScreenshot(`Game History — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Game History (${locale.label}, logged in, ${viewportName})`,
               [
@@ -544,7 +551,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               modalFlagged
             );
-            await wildiesPage.captureScreenshot(`Game History — ${locale.label} (${viewportName})`);
           });
         }
       });
@@ -564,6 +570,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openSportsbookMyBets();
             const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
+            await wildiesPage.captureScreenshot(`Sportsbook My Bets — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Sportsbook My Bets (${locale.label}, logged in, ${viewportName})`,
               [
@@ -571,7 +578,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
               ],
               [...modalFlagged, ...frameFlagged]
             );
-            await wildiesPage.captureScreenshot(`Sportsbook My Bets — ${locale.label} (${viewportName})`);
           });
         }
       });
