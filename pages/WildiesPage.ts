@@ -94,6 +94,14 @@ export class WildiesPage {
    * Italian, confirmed live 2026-08-28), and the form fields by `name`.
    */
   private async submitLoginForm(email: string, password: string): Promise<void> {
+    // Confirmed live 2026-08-31 (full-suite run): some auto-shown popup
+    // (its overlay carries `data-modal="Login"`, but it's not this
+    // method's own login form — that hasn't opened yet) can already be
+    // covering the header on a fresh navigation, and intercepts pointer
+    // events on the header button for this click's whole actionTimeout,
+    // throwing before ever reaching the retry below. Same fix as
+    // `launchGame()`'s identical race.
+    await this.dismissModalIfPresent();
     const headerButtons = this.page.locator('button[data-header-button]');
     const emailInput = this.page.locator('input[name="usernameEmail"]');
     await headerButtons.first().click();
