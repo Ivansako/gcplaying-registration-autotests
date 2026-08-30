@@ -278,7 +278,19 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage('/promotions', locale.path);
-            const { opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
+            const { found, opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
+            // A found-but-opened-none result means the "More info" buttons
+            // exist but every single attempt to open one failed — almost
+            // certainly a broken selector/interaction (a real regression to
+            // investigate), not an honest "nothing here" — so this is
+            // surfaced as its own red finding rather than silently
+            // reported the same way as a page with no promotions at all.
+            if (found > 0 && opened === 0) {
+              flagged.push(
+                `Found ${found} promotion "More info" button(s) but couldn't open any of them — the ` +
+                  'interaction may be broken (selector or markup change), not an honest absence of promotions'
+              );
+            }
             await wildiesPage.captureScreenshot(`Promotions — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Promotions (${locale.label}, anonymous, ${viewportName})`,
@@ -302,7 +314,16 @@ test.describe('beta.wildies.com — translation coverage', () => {
 
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
-            const { opened, flagged } = await wildiesPage.verifyAllTournamentDetails(locale.path);
+            const { found, opened, flagged } = await wildiesPage.verifyAllTournamentDetails(locale.path);
+            // Same reasoning as the Promotions check above: found-but-
+            // opened-none means the interaction is broken, not that there
+            // are honestly no tournaments.
+            if (found > 0 && opened === 0) {
+              flagged.push(
+                `Found ${found} tournament "More info" button(s) but couldn't open any of them — the ` +
+                  'interaction may be broken (selector or markup change), not an honest absence of tournaments'
+              );
+            }
             await wildiesPage.captureScreenshot(`Tournament details — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Tournament details (${locale.label}, anonymous, ${viewportName})`,
@@ -361,7 +382,15 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.open(locale.path);
             await wildiesPage.openForgotPasswordForm();
             const requestFormFlagged = await wildiesPage.scanForUntranslatedText();
-            await wildiesPage.submitForgotPassword(SEED_ACCOUNT!.email);
+            // Falls back to a fixed address rather than asserting on
+            // SEED_ACCOUNT — confirmed via independent code review
+            // 2026-08-30 that this test previously crashed with a
+            // TypeError (not a clean skip) whenever no Wildies account was
+            // configured, unlike every other credential-dependent test in
+            // this file. This check doesn't actually need a real,
+            // deliverable email either way — it's checking the form/
+            // confirmation screen's translated text, not deliverability.
+            await wildiesPage.submitForgotPassword(SEED_ACCOUNT?.email ?? 'wiztest008@gmail.com');
             await wildiesPage.captureScreenshot(`Forgot Password — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Forgot Password (${locale.label}, ${viewportName})`,

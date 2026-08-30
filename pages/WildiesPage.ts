@@ -598,7 +598,7 @@ export class WildiesPage {
    * DOM, with one tournament card's pair per tournament after it, so
    * skipping index 0 reliably yields only real tournament cards.
    */
-  async verifyAllTournamentDetails(localeSegment = ''): Promise<{ opened: number; flagged: string[] }> {
+  async verifyAllTournamentDetails(localeSegment = ''): Promise<{ found: number; opened: number; flagged: string[] }> {
     return step("Open and scan each tournament's own detail page", async () => {
       const listingUrl = localeSegment ? `/${localeSegment}/tournaments` : '/tournaments';
       const countCardGroups = () =>
@@ -611,11 +611,11 @@ export class WildiesPage {
 
       await this.page.goto(listingUrl);
       await this.page.waitForTimeout(2_000);
-      const count = await countCardGroups();
+      const found = await countCardGroups();
 
       let opened = 0;
       const flagged: string[] = [];
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < found; i++) {
         try {
           await this.page.goto(listingUrl);
           await this.page.waitForTimeout(2_000);
@@ -637,9 +637,13 @@ export class WildiesPage {
           }
         } catch {
           // one tournament's detail page misbehaving shouldn't sink the rest
+          // — but if EVERY one fails (found > 0, opened stays 0), the
+          // caller surfaces that as a real finding instead of silently
+          // reporting "nothing to check", see verifyAllTournamentDetails's
+          // call site.
         }
       }
-      return { opened, flagged };
+      return { found, opened, flagged };
     });
   }
 
@@ -658,7 +662,7 @@ export class WildiesPage {
    * data-modal="Promotion"` with that promotion's own details/T&C,
    * closed the same way as `dismissModalIfPresent()`.
    */
-  async verifyAllPromotionTerms(): Promise<{ opened: number; flagged: string[] }> {
+  async verifyAllPromotionTerms(): Promise<{ found: number; opened: number; flagged: string[] }> {
     return step("Open and scan each promotion's own details (Terms & Conditions)", async () => {
       const buttons = this.page.locator('[data-button-group="promotion-action"] button');
       // `.count()` reads the DOM as it is right now, with no built-in
@@ -668,10 +672,10 @@ export class WildiesPage {
       // already hit elsewhere in this page object, so an un-waited
       // count read 0 even though the cards appeared moments later.
       await buttons.first().waitFor({ timeout: 8_000 }).catch(() => {});
-      const count = await buttons.count();
+      const found = await buttons.count();
       let opened = 0;
       const flagged: string[] = [];
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < found; i++) {
         try {
           await buttons.nth(i).click({ timeout: 3_000 });
           const overlay = this.page.locator('[data-modal-overlay="true"]');
@@ -685,9 +689,12 @@ export class WildiesPage {
           // Not every button in this group is guaranteed to open a
           // modal reliably (e.g. mid-scroll layout shift) — skip this
           // one and keep going rather than failing the whole check.
+          // But if EVERY one fails (found > 0, opened stays 0), the
+          // caller surfaces that as a real finding instead of silently
+          // reporting "nothing to check" — see the spec's call site.
         }
       }
-      return { opened, flagged };
+      return { found, opened, flagged };
     });
   }
 
@@ -824,7 +831,16 @@ export class WildiesPage {
   private static readonly untranslatedTextScanner = () => {
     const KEY_PATTERNS: RegExp[] = [
       /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){1,}$/i, // dot.separated.key
-      /^[A-Z][A-Z0-9]*(_[A-Z0-9]+){2,}$/, // SCREAMING_SNAKE_CASE, 3+ segments
+      // SCREAMING_SNAKE_CASE, 4+ segments — confirmed via independent code
+      // review 2026-08-30 that 3+ segments (the previous threshold) can
+      // collide with a real, correctly-translated promo/transaction code
+      // shaped the same way (e.g. "WELCOME_50_BONUS"), which this suite
+      // scans for on exactly the pages such codes would appear (Promotions,
+      // Transaction History). 4+ segments is long enough that a real key
+      // leaking raw (this repo's own confirmed shape, e.g.
+      // "nothing.to.update"'s sibling patterns) still gets caught, while a
+      // human-authored 2-3-word code mostly won't.
+      /^[A-Z][A-Z0-9]*(_[A-Z0-9]+){3,}$/,
       /\{\{\s*[\w.]+\s*\}\}/, // leftover {{ placeholder }}
       /^\[object Object\]$/,
       /^(undefined|null|NaN)$/,

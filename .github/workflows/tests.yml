@@ -12,16 +12,8 @@ on:
           - brand-gcplaying
           - authenticated-account
           - game-providers
-          - wildies-localizations
-          - wildies-translation-coverage
+          - wildies-i18n
           - all
-      browser:
-        description: 'Which browser project to run on'
-        type: choice
-        default: chromium
-        options:
-          - chromium
-          - firefox
       include_form_submitting:
         description: 'Also run tests that submit the form for real (@positive, @duplicate) — creates a real account on the target site'
         type: boolean
@@ -45,7 +37,7 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox
+        run: npx playwright install --with-deps chromium
 
       - name: Determine test path
         id: spec
@@ -55,14 +47,13 @@ jobs:
             brand-gcplaying) echo "path=tests/brand-gcplaying.spec.ts tests/brand-content-pages.spec.ts tests/brand-legal-pages.spec.ts tests/brand-providers.spec.ts tests/forgot-password.spec.ts tests/brand-casino-ui.spec.ts" >> "$GITHUB_OUTPUT" ;;
             authenticated-account) echo "path=tests/authenticated-user.spec.ts tests/authenticated-account.spec.ts tests/authenticated-profile.spec.ts" >> "$GITHUB_OUTPUT" ;;
             game-providers) echo "path=tests/game-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
-            wildies-localizations) echo "path=tests/wildies-localizations.spec.ts" >> "$GITHUB_OUTPUT" ;;
-            wildies-translation-coverage) echo "path=tests/wildies-translation-coverage.spec.ts" >> "$GITHUB_OUTPUT" ;;
+            wildies-i18n) echo "path=tests/wildies-localizations.spec.ts tests/wildies-translation-coverage.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
           esac
           # Wildies is a different brand, kept in its own config/results dir
           # (see playwright.wildies.config.ts) rather than gcplaying0175.com's
           # — same reasoning as the local report split.
-          if [ "${{ inputs.spec }}" == "wildies-localizations" ] || [ "${{ inputs.spec }}" == "wildies-translation-coverage" ]; then
+          if [ "${{ inputs.spec }}" == "wildies-i18n" ]; then
             echo "config=--config=playwright.wildies.config.ts" >> "$GITHUB_OUTPUT"
             echo "results-dir=allure-results-wildies" >> "$GITHUB_OUTPUT"
             echo "report-dir=allure-report-wildies" >> "$GITHUB_OUTPUT"
@@ -97,7 +88,7 @@ jobs:
           if [ "${{ inputs.spec }}" != "brand-gcplaying" ] && [ "${{ inputs.include_form_submitting }}" != "true" ]; then
             GREP_ARGS="--grep-invert @positive|@duplicate"
           fi
-          npx playwright test ${{ steps.spec.outputs.path }} ${{ steps.spec.outputs.config }} --project=${{ inputs.browser }} --workers=1 $GREP_ARGS
+          npx playwright test ${{ steps.spec.outputs.path }} ${{ steps.spec.outputs.config }} --project=chromium --workers=1 $GREP_ARGS
         continue-on-error: true
         id: run_tests
 
