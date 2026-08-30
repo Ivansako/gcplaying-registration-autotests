@@ -17,6 +17,22 @@ import { SEED_ACCOUNT, ACCOUNT_POOL, WildiesAccount, nextPooledAccount } from '.
 // every currently available locale" test output once each locale ships.
 const ALL_LOCALES = [...EXISTING_LOCALES, ...PENDING_LOCALES];
 
+// Fixed English UI strings from the Sportsbook "My Bets" tab — confirmed
+// live 2026-08-30 that under Español the whole widget renders these
+// verbatim instead of translating (see `scanFrameForEnglishFallback`'s
+// comment for why `scanFrameForUntranslatedText` alone can't catch this).
+// Multi-word only, to rule out coincidental overlap with another locale's
+// real translation.
+const SPORTSBOOK_ENGLISH_BASELINE = [
+  'Bet Slip',
+  'My Bets',
+  'Repeat Selections',
+  'Total Odds',
+  'Total Stake',
+  'Total Return',
+  'Cash Out',
+];
+
 /**
  * For a not-yet-live locale, skips the test with a clear reason instead of
  * navigating straight to its URL prefix (e.g. `/de/casino`) — that path's
@@ -623,6 +639,11 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openSportsbookMyBets();
             const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
+            if (locale.code !== 'en') {
+              frameFlagged.push(
+                ...(await wildiesPage.scanFrameForEnglishFallback(wildiesPage.sportsbookFrame, SPORTSBOOK_ENGLISH_BASELINE))
+              );
+            }
             await wildiesPage.captureScreenshot(`Sportsbook My Bets — ${locale.label} (${viewportName})`);
             await wildiesPage.verifyTranslation(
               `Sportsbook My Bets (${locale.label}, logged in, ${viewportName})`,

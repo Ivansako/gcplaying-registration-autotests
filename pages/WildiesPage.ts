@@ -824,6 +824,27 @@ export class WildiesPage {
   }
 
   /**
+   * Flags any of `englishStrings` found verbatim in the frame's text —
+   * catches a translation gap invisible to `untranslatedTextScanner`: a
+   * widget that silently falls back to its default English UI instead of
+   * leaking a broken raw key. Confirmed live 2026-08-30: the Sportsbook
+   * "My Bets" tab under Español renders entirely in English (Bet Slip, My
+   * Bets, Total Stake, Cash Out, ...) with no broken key anywhere, so
+   * `scanFrameForUntranslatedText()` correctly found nothing — by its own,
+   * narrower definition ("does raw i18n machinery leak through"), nothing
+   * was leaking. Deliberately multi-word phrases only — a single common
+   * word (e.g. "All", "Open") risks colliding with a real, correctly
+   * translated string in some other locale; a multi-word English phrase
+   * appearing verbatim on a non-English page cannot be a coincidence.
+   */
+  async scanFrameForEnglishFallback(frame: FrameLocator, englishPhrases: string[]): Promise<string[]> {
+    const bodyText = await frame.locator('body').innerText();
+    return englishPhrases
+      .filter((phrase) => bodyText.includes(phrase))
+      .map((phrase) => `Still shows the English "${phrase}" — the widget appears to have fallen back to English instead of translating`);
+  }
+
+  /**
    * Pure, self-contained (no closure over `this`/outer scope) so it can be
    * handed to either `page.evaluate()` or a `FrameLocator`'s `evaluate()`
    * and serialized into that document's own execution context as-is.
