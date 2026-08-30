@@ -3,7 +3,7 @@ import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
 import { EXISTING_LOCALES, PENDING_LOCALES, WildiesLocale } from '../utils/wildiesLocales';
-import { SEED_ACCOUNT, ACCOUNT_POOL, nextPooledAccount } from '../utils/wildiesAccounts';
+import { SEED_ACCOUNT, ACCOUNT_POOL, WildiesAccount, nextPooledAccount } from '../utils/wildiesAccounts';
 
 // Covers the 5 pending locales too, not just the 6 already live — each
 // pending-locale test self-skips (see `ensureLocaleLive` below) until the
@@ -32,6 +32,30 @@ async function ensureLocaleLive(wildiesPage: WildiesPage, locale: WildiesLocale)
     !labels.includes(locale.label),
     `"${locale.label}" not yet deployed — this test activates automatically once it ships, no code change needed`
   );
+}
+
+/**
+ * Logs in with `account`, falling back to the next pooled account once if
+ * the login itself never completes (the balance never appears — see
+ * `WildiesPage.login()`) — confirmed live 2026-08-30 that a pooled account
+ * can come back from a prior run still flagged by the site's own
+ * anti-fraud/rate-limit system (login form submits fine, backend answers
+ * 401, page stays on the logged-out header), which otherwise fails every
+ * single test that happens to draw that account. A second consecutive
+ * failure is a real problem (not just one flagged account) and is allowed
+ * to fail the test normally. No-op fallback when only one account is
+ * configured — retrying the same flagged credentials wouldn't help.
+ */
+async function loginWithFallback(wildiesPage: WildiesPage, account: WildiesAccount): Promise<WildiesAccount> {
+  try {
+    await wildiesPage.login(account.email, account.password);
+    return account;
+  } catch (err) {
+    if (ACCOUNT_POOL.length < 2) throw err;
+    const fallback = nextPooledAccount();
+    await wildiesPage.login(fallback.email, fallback.password);
+    return fallback;
+  }
 }
 
 function stripBrowserType(device: (typeof devices)[string]) {
@@ -479,7 +503,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             const account = nextPooledAccount();
             await wildiesPage.open(locale.path);
-            await wildiesPage.login(account.email, account.password);
+            await loginWithFallback(wildiesPage, account);
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openAccountMenu();
             await wildiesPage.captureScreenshot(`Account menu — ${locale.label} (${viewportName})`);
@@ -509,7 +533,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
               await ensureLocaleLive(wildiesPage, locale);
               const account = nextPooledAccount();
               await wildiesPage.open(locale.path);
-              await wildiesPage.login(account.email, account.password);
+              await loginWithFallback(wildiesPage, account);
               const modalFlagged = wildiesPage.takePendingModalFindings();
               await wildiesPage.visitPage(p.path, locale.path);
               await wildiesPage.openSideMenu();
@@ -536,7 +560,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             const account = nextPooledAccount();
             await wildiesPage.open(locale.path);
-            await wildiesPage.login(account.email, account.password);
+            await loginWithFallback(wildiesPage, account);
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openCashier();
             modalFlagged.push(...wildiesPage.takePendingModalFindings());
