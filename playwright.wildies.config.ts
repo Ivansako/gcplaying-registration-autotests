@@ -59,7 +59,16 @@ export default defineConfig({
   use: {
     baseURL: 'https://beta.wildies.com',
     trace: 'retain-on-failure',
-    screenshot: 'on',
+    // 'only-on-failure', not 'on' — every check already takes its own
+    // deliberately-named, deliberately-timed screenshot(s) via
+    // `captureScreenshot()`. Confirmed live 2026-08-31: Playwright's own
+    // generic auto-screenshot (unlabeled "screenshot") fires at the very
+    // END of the test regardless, which on the anonymous/authenticated
+    // page checks meant it captured the nav drawer left open (since
+    // nothing closes it after the intentional nav-menu screenshot) —
+    // a THIRD, confusing attachment that looked like the mobile-content
+    // screenshot fix hadn't landed, when it actually had.
+    screenshot: 'only-on-failure',
     video: 'retain-on-failure',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
