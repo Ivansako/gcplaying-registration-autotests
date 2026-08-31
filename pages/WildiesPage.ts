@@ -1083,7 +1083,7 @@ export class WildiesPage {
 
   private async flagIssue(
     where: string,
-    opts: { severity: string; rootCause: string; whatToCheck: string; explainsFailure?: boolean }
+    opts: { severity: string; whatChecked?: string; rootCause: string; whatToCheck: string; explainsFailure?: boolean }
   ): Promise<void> {
     recordIssue({ where, ...opts });
   }
@@ -1194,20 +1194,27 @@ export class WildiesPage {
         `leaking into the UI), and the page's rendered width was checked against the viewport to catch a ` +
         `translated string long enough to break the layout.${sectionsText}`;
 
+      // Three clearly separated paragraphs, same shape whether this passes
+      // or fails — confirmed 2026-08-31 the previous single run-on
+      // paragraph (what was checked glued directly onto the result) was
+      // hard to read at a glance in the Allure Description panel.
       if (flagged.length === 0) {
         await descriptionHtml(
           `<div style="font-family: sans-serif; font-size: 13px; line-height: 1.6;">` +
-            `<p>✅ ${whatWasChecked}</p>` +
-            `<p><strong>Result:</strong> fully translated — no untranslated text was found.</p></div>`
+            `<p><strong>What was checked:</strong> ${whatWasChecked}</p>` +
+            `<p><strong>Result:</strong> ✅ Fully translated — no untranslated text or layout overflow was found.</p>` +
+            `<p><strong>Should be retested manually:</strong> Not needed — the automated scan already covers ` +
+            `every visible string on this exact page/locale/viewport combination.</p></div>`
         );
         return;
       }
 
       await this.flagIssue(pageLabel, {
         severity: 'High (content/localization bug)',
+        whatChecked: whatWasChecked,
         rootCause:
-          `${whatWasChecked} <strong>${flagged.length} piece(s) of text render as a raw, untranslated key ` +
-          `instead of real content:</strong> ${flagged.map((f) => `"${f}"`).join(', ')}.`,
+          `❌ ${flagged.length} piece(s) of text render as a raw, untranslated key instead of real content: ` +
+          `${flagged.map((f) => `"${f}"`).join(', ')}.`,
         whatToCheck:
           'Open this exact page/locale in a real browser and confirm the literal string(s) above render as ' +
           'visible text instead of real, translated content. Usually a missing translation entry for this ' +

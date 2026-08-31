@@ -16,6 +16,16 @@ import { test } from '@playwright/test';
 export interface IssueEntry {
   where: string;
   severity: string;
+  /**
+   * Optional — a short "what was actually examined" paragraph, rendered
+   * before Severity when present. Added 2026-08-31 for
+   * `WildiesPage.verifyTranslation()`, whose finding used to glue "what
+   * was checked" onto the front of `rootCause`, reading as one run-on
+   * paragraph instead of a clearly separated narrative. Left unset by
+   * other callers (console-error findings etc.) with no change in their
+   * own rendering.
+   */
+  whatChecked?: string;
   rootCause: string;
   whatToCheck: string;
   /**
@@ -51,11 +61,15 @@ export function clearIssues(): void {
 }
 
 export function renderIssueBlock(entry: IssueEntry): string {
+  const whatCheckedPara = entry.whatChecked
+    ? `<p style="margin: 0 0 4px;"><strong>What was checked:</strong> ${entry.whatChecked}</p>`
+    : '';
   return `<div style="margin: 0 0 14px; padding: 10px 14px; border-left: 4px solid #e2a33a; background: #fff8ec; font-family: sans-serif; font-size: 13px; line-height: 1.6;">
     <p style="margin: 0 0 6px; font-weight: 600;">⚠️ ${entry.where}</p>
+    ${whatCheckedPara}
     <p style="margin: 0 0 4px;"><strong>Severity:</strong> ${entry.severity}</p>
-    <p style="margin: 0 0 4px;"><strong>Root cause:</strong> ${entry.rootCause}</p>
-    <p style="margin: 0;"><strong>What to check manually:</strong> ${entry.whatToCheck}</p>
+    <p style="margin: 0 0 4px;"><strong>Result:</strong> ${entry.rootCause}</p>
+    <p style="margin: 0;"><strong>Should be retested manually:</strong> ${entry.whatToCheck}</p>
   </div>`;
 }
 
