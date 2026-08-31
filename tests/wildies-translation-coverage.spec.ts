@@ -203,7 +203,15 @@ test.describe('beta.wildies.com — translation coverage', () => {
     test.use({ viewport: { width: 1280, height: 800 } });
 
     test('Place one real minimum-bet slot spin', { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
-      test.setTimeout(90_000);
+      // Confirmed live 2026-08-31/09-01: `spinFirstAvailableGame()` already
+      // has ~35s of deliberate fixed waits baked in (20s provider splash +
+      // intro/bet-reduction/reel-settle), plus login and the post-spin
+      // Game History check — under normal conditions that's already
+      // ~55-60s before any real-world slowness. One run measured the spin
+      // step alone at 71.8s (the underlying spin/money-spend/Game-History
+      // update all succeeded — this was purely Playwright's own timeout
+      // killing an otherwise-fine test), so 90s left almost no margin.
+      test.setTimeout(150_000);
       allure.subSuite('Seed data');
       allure.severity('critical');
       allure.description(

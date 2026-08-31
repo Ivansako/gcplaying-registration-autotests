@@ -966,7 +966,17 @@ export class WildiesPage {
         await this.openSideMenu();
       }
       const matchXButton = this.page.getByRole('complementary').getByRole('button', { name: /match x/i }).first();
-      await matchXButton.click({ timeout: 20_000 });
+      try {
+        await matchXButton.click({ timeout: 20_000 });
+      } catch {
+        // Confirmed live 2026-09-01: the same "Finances" popup this
+        // method already dismisses/retries around before opening the
+        // side menu can reappear a second time, right before THIS click
+        // specifically — a fresh, later auto-open, not a leftover from
+        // the earlier check.
+        await this.dismissModalIfPresent();
+        await matchXButton.click({ timeout: 20_000 });
+      }
       await this.gamificationFrame.locator('.menu-item').first().waitFor({ timeout: 10_000 });
     });
   }
