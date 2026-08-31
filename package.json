@@ -11,6 +11,8 @@
     "report:open": "allure open allure-report",
     "report": "npm run report:generate && npm run report:open",
     "test:wildies": "playwright test --config=playwright.wildies.config.ts",
+    "test:wildies:clean": "node scripts/clean-wildies-results.js",
+    "test:wildies:full": "npm run test:wildies:clean && npm run test:wildies",
     "report:wildies:generate": "node scripts/promote-broken-steps.js allure-results-wildies && allure generate allure-results-wildies --clean -o allure-report-wildies",
     "report:wildies:open": "allure open allure-report-wildies",
     "report:wildies": "npm run report:wildies:generate && npm run report:wildies:open",
