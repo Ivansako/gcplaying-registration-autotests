@@ -87,7 +87,18 @@ const SUITES = [
   {
     value: 'wildies-i18n',
     label: 'I18N Testing — Beta Wildies',
-    sub: 'Locale switching + every page, the Cashier, Login/Sign Up, a real slot spin + sportsbook bet, and Game/Bet History — desktop + mobile, all live languages plus self-skipping checks for German/Finnish/Spanish/Swedish/Norwegian ahead of their rollout, red-or-green only',
+    sub:
+      'Checks language switching and translated content across every page — the Cashier, Login/Sign Up, a real ' +
+      'slot spin + sportsbook bet, and Game/Bet History — on both desktop and mobile, for every language ' +
+      'currently live on the site (Spanish included, since it shipped 2026-08-30). Checks for German, Finnish, ' +
+      'Swedish, and Norwegian are already written and switch on by themselves the moment those languages ship, ' +
+      'no code changes needed. Each run spends real money once, on the seed account below (one minimum-bet slot ' +
+      'spin + one minimum-stake sportsbook bet).' +
+      '<br><br><strong>Test accounts:</strong><br>' +
+      'wiztest008@gmail.com / Wiztest008 — seed account, the one real money moves through<br>' +
+      'wiztest911z@gmail.com / Wiztest911z<br>' +
+      'wiztest909z@gmail.com / Wiztest909z<br>' +
+      'wiztest910z@gmail.com / Wiztest910z',
     category: 'localization',
   },
   { value: 'all', label: 'All suites', sub: 'Everything above', category: 'all' },

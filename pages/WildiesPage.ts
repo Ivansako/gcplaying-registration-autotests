@@ -874,7 +874,11 @@ export class WildiesPage {
       /^\[object Object\]$/,
       /^(undefined|null|NaN)$/,
     ];
-    const DOMAIN_LIKE = /\.(com|io|net|org|co|app|gg)\b/i;
+    // ".ai" added 2026-08-31 — confirmed live the Gamification widget's own
+    // "Powered by Smartico.ai" attribution (real, third-party branding,
+    // correctly left untranslated in every locale) otherwise matches the
+    // dot.separated.key pattern below and false-positives as a broken key.
+    const DOMAIN_LIKE = /\.(com|io|net|org|co|app|gg|ai)\b/i;
 
     const seen = new Set<string>();
     const flagged: string[] = [];
@@ -910,6 +914,120 @@ export class WildiesPage {
    */
   get sportsbookFrame(): FrameLocator {
     return this.page.frameLocator('iframe[src*="88wplay"]');
+  }
+
+  /**
+   * The "Match X" gamification widget — a third-party Smartico.ai
+   * cross-origin iframe (`.../gf/Achievements3.html`), same architecture
+   * as `sportsbookFrame`. Confirmed live 2026-08-31: unlike the sportsbook
+   * widget, this one does NOT follow the site's own current locale — an
+   * account opened here under `open('en')` still showed the widget fully
+   * in Italian, presumably a per-account/per-device preference Smartico
+   * tracks itself rather than reading the page's locale on each open.
+   * Because of that, checks against this frame only scan for broken raw
+   * keys leaking through (the same conservative, locale-agnostic check
+   * used everywhere else) — asserting it matches the CURRENT test's
+   * locale would be asserting something not actually true of this widget,
+   * not a real translation bug. Worth flagging to the Wildies team as its
+   * own question (is that the intended integration?), separate from this
+   * suite's job of catching broken/missing translations.
+   */
+  get gamificationFrame(): FrameLocator {
+    return this.page.frameLocator('iframe[src*="Achievements3.html"]');
+  }
+
+  /**
+   * Opens the sidebar's "Match X" button — "Match X" is the product's own
+   * name, confirmed unchanged across every tested locale, so this locator
+   * doesn't need a per-locale label.
+   */
+  async openGamificationWidget(): Promise<void> {
+    await step('Open the gamification (Match X) widget', async () => {
+      // getByRole (accessible name), NOT locator(hasText) — confirmed live
+      // 2026-08-31: at this suite's normal Desktop width (1280px, from
+      // `devices['Desktop Chrome']`) the sidebar collapses to icon-only,
+      // and "Match X" only exists as the icon's `alt` text at that point
+      // (no separate visible text node), which contributes to the
+      // accessible name but not to `hasText`'s plain DOM-text match.
+      // On mobile there's no visible sidebar at all until the drawer
+      // opens — confirmed live 2026-08-31 that an unopened attempt
+      // instead matched an unrelated, off-screen home-page promo banner
+      // advertising the same feature. `openSideMenu()` already handles
+      // the desktop/mobile toggle difference; scoping the button search
+      // to the sidebar's `complementary` landmark avoids that banner.
+      await this.dismissModalIfPresent();
+      try {
+        await this.openSideMenu();
+      } catch {
+        // Confirmed live 2026-08-31: a "Finances"/reward popup can
+        // (re)appear a beat after the check above — same class of race
+        // as `launchGame()`'s identical dismiss-and-retry.
+        await this.dismissModalIfPresent();
+        await this.openSideMenu();
+      }
+      const matchXButton = this.page.getByRole('complementary').getByRole('button', { name: /match x/i }).first();
+      await matchXButton.click({ timeout: 20_000 });
+      await this.gamificationFrame.locator('.menu-item').first().waitFor({ timeout: 10_000 });
+    });
+  }
+
+  async closeGamificationWidget(): Promise<void> {
+    await step('Close the gamification widget', async () => {
+      await this.gamificationFrame.locator('.close-button-wrapper .close-button').click();
+    });
+  }
+
+  /**
+   * The 5 sidebar sections inside the widget (Overview, Missions, Levels,
+   * Store, Inbox) are plain non-semantic `.menu-item` divs with no stable
+   * per-locale text to select by — same DOM-position reasoning already
+   * used elsewhere in this file (documented there as a deliberate,
+   * fragile-but-necessary tradeoff). Confirmed live 2026-08-31 the order
+   * is fixed regardless of locale.
+   *
+   * On mobile this list lives behind its own internal hamburger
+   * (`.header-menu`) rather than being directly on-screen — and,
+   * confirmed live 2026-08-31, it can close again after navigating (e.g.
+   * re-clicking the already-active section), so this reopens it
+   * defensively on a failed click and retries, rather than assuming one
+   * open lasts the rest of the test.
+   */
+  async openGamificationSection(index: number): Promise<void> {
+    await step(`Open gamification section #${index}`, async () => {
+      // Confirmed live 2026-08-31: on mobile this closes again after EVERY
+      // section change (not just when re-selecting the active one), so
+      // this opens it proactively every time rather than retrying after a
+      // failed click — a retry-after-failure round trip (each with its own
+      // multi-second actionability timeout) was blowing well past this
+      // test's own timeout once multiplied across 5 sections + sub-tabs.
+      if ((this.page.viewportSize()?.width ?? 1280) < 700) {
+        await this.gamificationFrame.locator('.header-menu').click().catch(() => {});
+        await this.page.waitForTimeout(300);
+      }
+      await this.gamificationFrame.locator('.menu-item').nth(index).click();
+      await this.page.waitForTimeout(1_500); // content-animator transition
+    });
+  }
+
+  /**
+   * Missions and Store each have their own inner tab bar
+   * (`.tabs-container .tab-container`, e.g. Missions' Overview/Available/
+   * Locked/Completed) — Overview and Inbox don't, so this is a no-op for
+   * those (`count()` is simply 0). Discovery-driven rather than a
+   * hardcoded "4", since Store's own count differs from Missions'.
+   * NOTE: Inbox has a further inner layer of its own (`.inbox-new-
+   * categories` "All"/"Favorite") that this does NOT drill into — a
+   * documented gap, not silent coverage.
+   */
+  async gamificationSubTabCount(): Promise<number> {
+    return this.gamificationFrame.locator('.tabs-container .tab-container').count();
+  }
+
+  async openGamificationSubTab(index: number): Promise<void> {
+    await step(`Open gamification sub-tab #${index}`, async () => {
+      await this.gamificationFrame.locator('.tabs-container .tab-container').nth(index).click();
+      await this.page.waitForTimeout(1_000);
+    });
   }
 
   /**

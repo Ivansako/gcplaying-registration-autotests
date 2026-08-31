@@ -261,13 +261,24 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const wildiesPage = new WildiesPage(page);
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage(p.path, locale.path);
-            await wildiesPage.openSideMenu(); // opens the nav drawer + language switcher panel too
             // Screenshot BEFORE the assertion: verifyTranslation() throws on
             // a real finding, and a screenshot taken only after it would
             // never run for exactly the tests where visual evidence matters
             // most (a red/failed one) — confirmed live 2026-08-30 that this
             // was silently the case for every failing test in the suite.
+            //
+            // Two separate screenshots, content THEN nav — confirmed live
+            // 2026-08-31: on mobile the nav drawer is a full-screen overlay,
+            // so a single screenshot taken after `openSideMenu()` (the old
+            // behavior) showed only the drawer and never the page content
+            // it was supposed to be evidence for, on every single page ×
+            // locale combination. `verifyTranslation()` itself was never
+            // affected (it scans the DOM, not pixels — a covered element is
+            // still "visible" in CSS terms) — this only fixes what a human
+            // reviewing the report can actually see.
             await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (anonymous, ${viewportName})`);
+            await wildiesPage.openSideMenu(); // opens the nav drawer + language switcher panel too
+            await wildiesPage.captureScreenshot(`${p.name} — ${locale.label}, nav menu (anonymous, ${viewportName})`);
             await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, anonymous, ${viewportName})`, [
               'Main page content',
               'Side navigation menu',
@@ -536,6 +547,59 @@ test.describe('beta.wildies.com — translation coverage', () => {
         }
       });
 
+      test.describe('Gamification (Match X)', () => {
+        test.skip(!hasCreds, 'No Wildies test accounts configured');
+
+        for (const locale of ALL_LOCALES) {
+          test(`Gamification — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+            test.setTimeout(90_000);
+            allure.subSuite('Gamification');
+            allure.severity('normal');
+
+            const wildiesPage = new WildiesPage(page);
+            await ensureLocaleLive(wildiesPage, locale);
+            const account = nextPooledAccount();
+            await wildiesPage.open(locale.path);
+            await loginWithFallback(wildiesPage, account);
+            const modalFlagged = wildiesPage.takePendingModalFindings();
+            await wildiesPage.openGamificationWidget();
+
+            // 5 sections: Overview, Missions, Levels, Store, Inbox — see
+            // `openGamificationSection()`'s comment for why this is
+            // position-based. Missions and Store each have their own inner
+            // sub-tabs (e.g. Missions' Overview/Available/Locked/
+            // Completed); Overview and Inbox don't, `gamificationSubTabCount()`
+            // is just 0 for those.
+            const frameFlagged: string[] = [];
+            const pushUnique = (findings: string[]) => {
+              for (const f of findings) if (!frameFlagged.includes(f)) frameFlagged.push(f);
+            };
+            for (let section = 0; section < 5; section++) {
+              await wildiesPage.openGamificationSection(section);
+              pushUnique(await wildiesPage.scanFrameForUntranslatedText(wildiesPage.gamificationFrame));
+              const subTabCount = await wildiesPage.gamificationSubTabCount();
+              for (let sub = 0; sub < subTabCount; sub++) {
+                await wildiesPage.openGamificationSubTab(sub);
+                pushUnique(await wildiesPage.scanFrameForUntranslatedText(wildiesPage.gamificationFrame));
+              }
+            }
+
+            await wildiesPage.captureScreenshot(`Gamification — ${locale.label} (${viewportName})`);
+            await wildiesPage.verifyTranslation(
+              `Gamification (${locale.label}, logged in, ${viewportName})`,
+              [
+                'The "Match X" gamification widget\'s Overview/Missions/Levels/Store/Inbox sections and each ' +
+                  'section\'s own sub-tabs — scanned for broken/leaking raw keys only, not for matching this ' +
+                  'test\'s own locale (confirmed live 2026-08-31 this widget\'s displayed language follows its ' +
+                  'own per-account setting rather than the site\'s current locale — see the class-level comment ' +
+                  'on `gamificationFrame`). Inbox\'s own inner "All"/"Favorite" categories are not drilled into.',
+              ],
+              [...modalFlagged, ...frameFlagged]
+            );
+          });
+        }
+      });
+
       test.describe('Authenticated account pages', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
@@ -552,8 +616,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
               await loginWithFallback(wildiesPage, account);
               const modalFlagged = wildiesPage.takePendingModalFindings();
               await wildiesPage.visitPage(p.path, locale.path);
-              await wildiesPage.openSideMenu();
+              // Content screenshot before opening the nav drawer — see the
+              // ANONYMOUS_PAGES loop's identical comment above for why
+              // (mobile's drawer is a full-screen overlay that otherwise
+              // hides the very content this screenshot exists to show).
               await wildiesPage.captureScreenshot(`${p.name} — ${locale.label} (logged in, ${viewportName})`);
+              await wildiesPage.openSideMenu();
+              await wildiesPage.captureScreenshot(`${p.name} — ${locale.label}, nav menu (logged in, ${viewportName})`);
               await wildiesPage.verifyTranslation(
                 `${p.name} (${locale.label}, logged in, ${viewportName})`,
                 ['Main page content', 'Side navigation menu', 'Language switcher panel'],
