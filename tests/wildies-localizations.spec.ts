@@ -55,7 +55,18 @@ test.describe('beta.wildies.com — locale switching', () => {
         expect(await wildiesPage.getCurrentLocale()).toBe(locale.code);
       });
 
-      await wildiesPage.attachScreenshot(`${locale.label} — direct URL`);
+      // `captureScreenshot()`, not `attachScreenshot()` — confirmed live
+      // 2026-08-31 the latter's console-error/broken-image/overflow
+      // side-analysis logs a "broken" step for ANY console error, even
+      // already-known harmless noise (the sandboxed-iframe/Smartico
+      // messages `consoleErrorAnalysis()` itself recognizes as such),
+      // which `promote-broken-steps.js` then promotes to a top-level
+      // orange result — on a test whose own assertion passed cleanly.
+      // This suite's own locale-switching mechanics are red-or-green only
+      // (same reasoning as `verifyTranslation()`'s identical mandate in
+      // wildies-translation-coverage.spec.ts): a generic technical
+      // finding isn't what THIS check exists to catch.
+      await wildiesPage.captureScreenshot(`${locale.label} — direct URL`);
     });
   }
 
@@ -97,7 +108,7 @@ test.describe('beta.wildies.com — locale switching', () => {
         await wildiesPage.open();
         const lang = await wildiesPage.switchLocale(locale.label);
         expect(lang).toBe(locale.code);
-        await wildiesPage.attachScreenshot(`${locale.label} — via dropdown`);
+        await wildiesPage.captureScreenshot(`${locale.label} — via dropdown`);
       });
     }
   });
@@ -119,7 +130,7 @@ test.describe('beta.wildies.com — locale switching', () => {
 
         const lang = await wildiesPage.switchLocale(locale.label);
         expect(lang).toBe(locale.code);
-        await wildiesPage.attachScreenshot(`${locale.label} — via dropdown`);
+        await wildiesPage.captureScreenshot(`${locale.label} — via dropdown`);
       });
     }
   });
