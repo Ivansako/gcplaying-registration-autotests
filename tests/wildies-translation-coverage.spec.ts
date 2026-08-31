@@ -323,6 +323,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe("Promotions (including each promotion's own Terms & Conditions)", () => {
         for (const locale of ALL_LOCALES) {
           test(`Promotions — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            // Confirmed live 2026-08-31: this discovery-driven check opens
+            // EVERY promotion's own T&C, and the site now has enough of
+            // them to exceed the config's default 45s on every locale —
+            // a real timing issue, not a translation one (same reasoning
+            // as Tournaments' identical bump below).
+            test.setTimeout(90_000);
             allure.subSuite('Promotions');
             allure.severity('normal');
 
@@ -360,6 +366,8 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe("Tournaments (including each tournament's own detail page)", () => {
         for (const locale of ALL_LOCALES) {
           test(`Tournament details — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            // Same reasoning as Promotions' identical bump above.
+            test.setTimeout(90_000);
             allure.subSuite('Tournaments');
             allure.severity('normal');
 
