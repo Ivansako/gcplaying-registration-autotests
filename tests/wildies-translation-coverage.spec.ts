@@ -420,7 +420,11 @@ test.describe('beta.wildies.com — translation coverage', () => {
       // deliberately: Login/Sign Up/Forgot Password/the duplicate-email
       // and login-error states are ALL the same `[data-modal-overlay]`
       // dialog `dismissModalIfPresent()` would close, since it can't tell
-      // "the intended modal" from "an unwanted one".
+      // "the intended modal" from "an unwanted one". They DO all pass
+      // `fullPage: false` — confirmed live 2026-09-01 this modal doesn't
+      // lock the page's own scroll, so `fullPage: true` scrolled past it
+      // and pasted unrelated background page content below the fold
+      // instead of the modal's own (dimmed) backdrop.
       test.describe('Login / Sign Up popup', () => {
         for (const locale of ALL_LOCALES) {
           test(`Login popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
@@ -431,7 +435,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openAuthModal('login');
-            await wildiesPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`);
+            await wildiesPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`, { fullPage: false });
             await wildiesPage.verifyTranslation(`Login popup (${locale.label}, ${viewportName})`, [
               'Login form fields and labels',
               'Remember me / Forgot password',
@@ -447,7 +451,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openAuthModal('register');
-            await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`);
+            await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`, { fullPage: false });
             await wildiesPage.verifyTranslation(`Sign Up popup (${locale.label}, ${viewportName})`, [
               'Sign Up form fields and labels',
               'Password strength hints',
@@ -474,7 +478,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             // deliverable email either way — it's checking the form/
             // confirmation screen's translated text, not deliverability.
             await wildiesPage.submitForgotPassword(SEED_ACCOUNT?.email ?? 'wiztest008@gmail.com');
-            await wildiesPage.captureScreenshot(`Forgot Password — ${locale.label} (${viewportName})`);
+            await wildiesPage.captureScreenshot(`Forgot Password — ${locale.label} (${viewportName})`, { fullPage: false });
             await wildiesPage.verifyTranslation(
               `Forgot Password (${locale.label}, ${viewportName})`,
               ['Request form (title, description, email field, submit button)', 'Confirmation screen after submitting'],
@@ -497,7 +501,9 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.open(locale.path);
             const { attempted } = await wildiesPage.attemptDuplicateEmailRegistration(SEED_ACCOUNT!.email);
             if (!attempted) {
-              await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName}, not attempted)`);
+              await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName}, not attempted)`, {
+                fullPage: false,
+              });
               allure.description(
                 `<p>⚠️ The Sign Up submit button never enabled for this locale, even with a fully valid-looking ` +
                   `form (a known, unresolved limitation — see <code>attemptDuplicateEmailRegistration()</code>'s ` +
@@ -506,7 +512,9 @@ test.describe('beta.wildies.com — translation coverage', () => {
               );
               return;
             }
-            await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName})`);
+            await wildiesPage.captureScreenshot(`Duplicate email error — ${locale.label} (${viewportName})`, {
+              fullPage: false,
+            });
             await wildiesPage.verifyTranslation(`Duplicate email registration error (${locale.label}, ${viewportName})`, [
               'The server-side error shown after submitting Sign Up with an already-registered email',
             ]);
@@ -524,7 +532,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.expectLoginFailure(SEED_ACCOUNT?.email ?? 'wiztest008@gmail.com', 'not-the-real-password');
-            await wildiesPage.captureScreenshot(`Login error — ${locale.label} (${viewportName})`);
+            await wildiesPage.captureScreenshot(`Login error — ${locale.label} (${viewportName})`, { fullPage: false });
             await wildiesPage.verifyTranslation(`Login error message (${locale.label}, ${viewportName})`, [
               'Login form error notification',
             ]);
@@ -568,6 +576,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openAccountMenu();
             await wildiesPage.captureScreenshot(`Account menu — ${locale.label} (${viewportName})`, {
+              fullPage: false,
               dismissModalFirst: true,
             });
             await wildiesPage.verifyTranslation(
@@ -621,6 +630,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             }
 
             await wildiesPage.captureScreenshot(`Gamification — ${locale.label} (${viewportName})`, {
+              fullPage: false,
               dismissModalFirst: true,
             });
             await wildiesPage.verifyTranslation(
@@ -697,7 +707,9 @@ test.describe('beta.wildies.com — translation coverage', () => {
             // No `dismissModalFirst` here, deliberately — the Cashier IS a
             // `[data-modal-overlay="true"][data-modal="Finances"]` dialog
             // itself, the exact thing `dismissModalIfPresent()` closes.
-            await wildiesPage.captureScreenshot(`Cashier — ${locale.label} (${viewportName})`);
+            // `fullPage: false` still applies, same as every other
+            // modal/dropdown/widget screenshot in this file.
+            await wildiesPage.captureScreenshot(`Cashier — ${locale.label} (${viewportName})`, { fullPage: false });
             await wildiesPage.verifyTranslation(
               `Cashier (${locale.label}, logged in, ${viewportName})`,
               [

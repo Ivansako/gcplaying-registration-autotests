@@ -210,8 +210,18 @@ export class WildiesPage {
       // reconciliation and crashed the app to an error boundary
       // ("Something went wrong") on the very next render — confirmed
       // live the hard way. Always close it the way the app itself does.
-      await overlay.locator('[data-modal-close-button]').click();
-      await expect(overlay).toBeHidden({ timeout: 5_000 });
+      //
+      // Best-effort: swallow a failed click/close — confirmed live
+      // 2026-09-01 a persistent "Finances" popup can keep this from
+      // closing within 5s, and this is a cleanup helper (many call sites
+      // use it defensively before their own real action), not something
+      // that should fail an unrelated caller's step over a modal it
+      // couldn't get rid of in time.
+      await overlay
+        .locator('[data-modal-close-button]')
+        .click()
+        .then(() => expect(overlay).toBeHidden({ timeout: 5_000 }))
+        .catch(() => {});
     });
   }
 
@@ -573,8 +583,55 @@ export class WildiesPage {
    */
   async openAccountMenu(): Promise<void> {
     await step('Open the account avatar dropdown', async () => {
-      await this.page.locator('header button[data-icon-button-type="wrapper"]').last().click();
-      await this.page.waitForTimeout(500);
+      const wrapperButtons = this.page.locator('header button[data-icon-button-type="wrapper"]');
+      const modalOverlay = this.page.locator('[data-modal-overlay="true"]').first();
+      // Confirmed live 2026-09-01 via full step-timeline inspection: on a
+      // zero-balance pooled account (unlike SEED_ACCOUNT, which carries a
+      // real balance), clicking the avatar button reliably reopens the
+      // "Finances" deposit-nag popup INSTEAD of the account dropdown —
+      // observed 4/4 attempts in a row, not an occasional race. It adds
+      // its own close button (also `data-icon-button-type="wrapper"`),
+      // which satisfied a raw wrapper-button-count check without the
+      // actual dropdown ever opening — `verifyTranslation()`'s DOM scan
+      // still passed vacuously (nothing to find in an empty search space
+      // isn't the same as "translated correctly"), and the screenshot
+      // showed neither the dropdown nor the popup, since
+      // `dismissModalFirst` correctly closed the popup right after. This
+      // looks like real site behavior (a zero-balance account being
+      // blocked from its own account menu until it deposits), not
+      // automation flakiness — retrying more doesn't out-wait it.
+      // Still retries a few times in case a GIVEN run's popup genuinely
+      // is just a one-off race, but raises a clear, specific error if it
+      // isn't, rather than silently passing with the wrong screenshot.
+      for (let attempt = 0; attempt < 4; attempt++) {
+        // Swallow a failed dismiss — confirmed live 2026-09-01 the
+        // "Finances" popup can be persistent enough that
+        // dismissModalIfPresent()'s own `toBeHidden` wait times out and
+        // throws, which would otherwise abort this whole retry instead
+        // of giving the next attempt a chance.
+        await this.dismissModalIfPresent().catch(() => {});
+        try {
+          await wrapperButtons.last().click();
+          // Opening the dropdown adds its own close button (also
+          // `data-icon-button-type="wrapper"`), taking this locator's
+          // count from 2 to 3 — a locale-agnostic "did SOMETHING open"
+          // signal (no translated text/aria-label to depend on).
+          await expect(wrapperButtons).toHaveCount(3, { timeout: 5_000 });
+        } catch {
+          continue; // give the next attempt a chance instead of aborting
+        }
+        if (!(await modalOverlay.isVisible().catch(() => false))) return; // genuinely the dropdown, not a modal
+        // A short settle delay — confirmed live 2026-09-01 that
+        // hammering the same click immediately can just re-trigger the
+        // nag again; giving it a beat before the next attempt measurably
+        // helped.
+        await this.page.waitForTimeout(1_000);
+      }
+      throw new Error(
+        'The account avatar dropdown never opened after 4 attempts — every click reopened the "Finances" ' +
+          'deposit-nag popup instead. Confirmed live 2026-09-01 this happens reliably (4/4) on a zero-balance ' +
+          'account; looks like real site behavior blocking the account menu until a deposit is made, not a flake.'
+      );
     });
   }
 
