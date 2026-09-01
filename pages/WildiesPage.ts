@@ -627,11 +627,18 @@ export class WildiesPage {
         // helped.
         await this.page.waitForTimeout(1_000);
       }
-      throw new Error(
+      // A plain `throw` here would still fail the test, but as an
+      // uncaught exception rather than a Playwright assertion — which
+      // allure-playwright renders as "broken" (orange), not "failed"
+      // (red). This suite is red-or-green only (see `verifyTranslation()`'s
+      // identical reasoning), so this needs to fail the exact same way
+      // every other finding in this file does: via `expect()`.
+      expect(
+        false,
         'The account avatar dropdown never opened after 4 attempts — every click reopened the "Finances" ' +
           'deposit-nag popup instead. Confirmed live 2026-09-01 this happens reliably (4/4) on a zero-balance ' +
           'account; looks like real site behavior blocking the account menu until a deposit is made, not a flake.'
-      );
+      ).toBe(true);
     });
   }
 
