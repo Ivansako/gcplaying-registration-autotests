@@ -117,6 +117,20 @@ function suiteLabel(value) {
   return s ? s.label : value;
 }
 
+// Rough ETA for the progress bar: mean of the last 5 completed runs of the
+// same suite we've seen since this server process started. GitHub Actions
+// doesn't expose an ETA itself, and suite runtimes vary a lot (a few
+// minutes vs. hours for wildies-i18n), so this is only ever a same-suite
+// historical estimate, not a promise — the front end labels it "est.".
+function averageDurationMs(suiteValue) {
+  const durations = history
+    .filter((h) => h.suiteValue === suiteValue && h.durationMs)
+    .slice(0, 5)
+    .map((h) => h.durationMs);
+  if (!durations.length) return null;
+  return Math.round(durations.reduce((a, b) => a + b, 0) / durations.length);
+}
+
 function formatDuration(ms) {
   if (!ms || ms < 0) return '';
   const s = Math.round(ms / 1000);
@@ -322,6 +336,39 @@ function html() {
   .run-status__text { font-weight: 500; }
   .run-status__text--success { color: var(--green); }
   .run-status__text--failure { color: var(--red); }
+  .progress-wrap { margin-top: .85rem; }
+  .progress-bar {
+    position: relative; height: 8px; border-radius: 999px; overflow: hidden;
+    background: var(--bg-2); border: 1px solid var(--border);
+  }
+  .progress-bar__fill {
+    position: absolute; top: 0; left: 0; height: 100%; width: 0%;
+    background: var(--grad); border-radius: 999px; transition: width 1s linear;
+  }
+  .progress-bar--indeterminate .progress-bar__fill {
+    width: 35%; transition: none; animation: progress-indeterminate 1.3s ease-in-out infinite;
+  }
+  @keyframes progress-indeterminate {
+    0% { left: -35%; }
+    100% { left: 100%; }
+  }
+  .progress-meta { display: flex; align-items: center; justify-content: space-between; gap: .75rem; margin-top: .5rem; }
+  .progress-meta__text { color: var(--muted); font-size: .82rem; }
+  button#cancel-button {
+    flex: none;
+    background: transparent;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    border-radius: 8px;
+    padding: .35rem .75rem;
+    font-family: inherit;
+    font-size: .8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: border-color .15s, color .15s;
+  }
+  button#cancel-button:hover:not(:disabled) { border-color: var(--red); color: var(--red); }
+  button#cancel-button:disabled { opacity: .55; cursor: not-allowed; }
   .result-row { display: flex; gap: .5rem; flex-wrap: wrap; margin-top: 1rem; }
   .pill { border-radius: 999px; padding: .3rem .75rem; font-size: .85rem; font-weight: 600; }
   .pill--passed { background: var(--green-bg); color: var(--green); }
@@ -376,6 +423,13 @@ function html() {
     <div style="margin-top: 1rem;">
       <button id="run-button">Run tests</button>
       <div class="run-status" id="run-status"></div>
+      <div class="progress-wrap" id="progress-wrap" hidden>
+        <div class="progress-bar" id="progress-bar"><div class="progress-bar__fill" id="progress-fill"></div></div>
+        <div class="progress-meta">
+          <span class="progress-meta__text" id="progress-elapsed"></span>
+          <button id="cancel-button" type="button" hidden>Cancel run</button>
+        </div>
+      </div>
       <div class="result-row" id="result-row"></div>
       <div class="links" id="links"></div>
     </div>
@@ -393,6 +447,11 @@ const runStatusEl = document.getElementById('run-status');
 const resultRowEl = document.getElementById('result-row');
 const linksEl = document.getElementById('links');
 const historyEl = document.getElementById('history');
+const progressWrapEl = document.getElementById('progress-wrap');
+const progressBarEl = document.getElementById('progress-bar');
+const progressFillEl = document.getElementById('progress-fill');
+const progressElapsedEl = document.getElementById('progress-elapsed');
+const cancelButtonEl = document.getElementById('cancel-button');
 
 function suiteRadio() {
   return document.querySelector('input[name="suite"]:checked').value;
@@ -408,6 +467,66 @@ const emptyCategoryMsg = document.getElementById('empty-category-msg');
 
 let currentCategory = 'development';
 let isRunInProgress = false;
+let progressTimer = null;
+let progressDispatchedAtMs = null;
+let progressAvgDurationMs = null;
+let tickingForRunId = null;
+
+function formatClock(ms) {
+  const totalSec = Math.max(0, Math.round(ms / 1000));
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return m + ':' + String(s).padStart(2, '0');
+}
+
+function tickProgress() {
+  const elapsed = Date.now() - progressDispatchedAtMs;
+  if (progressAvgDurationMs) {
+    const pct = Math.min(97, Math.round((elapsed / progressAvgDurationMs) * 100));
+    progressFillEl.style.width = pct + '%';
+    const remaining = progressAvgDurationMs - elapsed;
+    progressElapsedEl.textContent = 'Elapsed ' + formatClock(elapsed) +
+      (remaining > 0 ? ' — about ' + formatClock(remaining) + ' left (est.)' : ' — should finish any moment now');
+  } else {
+    progressElapsedEl.textContent = 'Elapsed ' + formatClock(elapsed) + ' — no time estimate yet for this suite';
+  }
+}
+
+function startProgressTicker(dispatchedAtIso, avgDurationMs) {
+  progressDispatchedAtMs = dispatchedAtIso ? new Date(dispatchedAtIso).getTime() : Date.now();
+  progressAvgDurationMs = avgDurationMs || null;
+  progressWrapEl.hidden = false;
+  progressBarEl.classList.toggle('progress-bar--indeterminate', !progressAvgDurationMs);
+  if (!progressAvgDurationMs) progressFillEl.style.width = '';
+  cancelButtonEl.hidden = false;
+  cancelButtonEl.disabled = false;
+  cancelButtonEl.textContent = 'Cancel run';
+  tickProgress();
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = setInterval(tickProgress, 1000);
+}
+
+function stopProgressTicker() {
+  if (progressTimer) clearInterval(progressTimer);
+  progressTimer = null;
+  progressWrapEl.hidden = true;
+  cancelButtonEl.hidden = true;
+  tickingForRunId = null;
+}
+
+cancelButtonEl.addEventListener('click', async () => {
+  if (!confirm('Cancel the run in progress? This stops it on GitHub Actions right away.')) return;
+  cancelButtonEl.disabled = true;
+  cancelButtonEl.textContent = 'Cancelling...';
+  const res = await fetch('/cancel', { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    alert('Could not cancel: ' + (body.error || res.statusText));
+    cancelButtonEl.disabled = false;
+    cancelButtonEl.textContent = 'Cancel run';
+  }
+  // On success, keep polling as usual — the run will show up as "cancelled" once GitHub finishes tearing it down.
+});
 
 function openCategoryMenu() {
   categoryMenu.classList.add('dropdown__menu--open');
@@ -535,14 +654,22 @@ async function poll() {
 
   if (data.status !== 'completed') {
     runStatusEl.innerHTML = '<div class="spinner"></div><span class="run-status__text">Running on GitHub Actions (' +
-      data.status + ')... usually 1-3 minutes.</span>';
+      data.status + ')...</span>';
+    if (tickingForRunId !== data.runId) {
+      tickingForRunId = data.runId;
+      startProgressTicker(data.dispatchedAt, data.avgDurationMs);
+    }
     setTimeout(poll, 4000);
     return;
   }
 
+  stopProgressTicker();
+
   const isSuccess = data.conclusion === 'success';
-  runStatusEl.innerHTML = '<span class="run-status__text run-status__text--' + (isSuccess ? 'success' : 'failure') + '">' +
-    (isSuccess ? 'All good' : 'Finished with failures') + '</span>';
+  const isCancelled = data.conclusion === 'cancelled';
+  const statusClass = isCancelled ? 'failure' : (isSuccess ? 'success' : 'failure');
+  const statusText = isCancelled ? 'Run cancelled' : (isSuccess ? 'All good' : 'Finished with failures');
+  runStatusEl.innerHTML = '<span class="run-status__text run-status__text--' + statusClass + '">' + statusText + '</span>';
   isRunInProgress = false;
   runButton.disabled = false;
   renderPills(data.statistic);
@@ -663,10 +790,12 @@ async function pollRun() {
 
     history.unshift({
       suite: suiteLabel(currentRun.suite),
+      suiteValue: currentRun.suite,
       conclusion: currentRun.conclusion,
       statistic: currentRun.statistic,
       htmlUrl: currentRun.htmlUrl,
       finishedAt: new Date().toISOString(),
+      durationMs: currentRun.dispatchedAt ? Date.now() - new Date(currentRun.dispatchedAt).getTime() : null,
     });
     history.length = Math.min(history.length, MAX_HISTORY);
   }
@@ -774,12 +903,38 @@ const server = http.createServer((req, res) => {
       htmlUrl: currentRun.htmlUrl,
       reportReady: !!currentRun.reportReady,
       statistic: currentRun.statistic || null,
+      dispatchedAt: currentRun.dispatchedAt || null,
+      avgDurationMs: averageDurationMs(currentRun.suite),
     });
     return;
   }
 
   if (req.method === 'GET' && req.url === '/history') {
     sendJson(res, 200, history);
+    return;
+  }
+
+  if (req.method === 'POST' && req.url === '/cancel') {
+    (async () => {
+      if (!currentRun || !currentRun.runId || currentRun.status === 'completed') {
+        sendJson(res, 409, { error: 'No run in progress to cancel.' });
+        return;
+      }
+      try {
+        const cancelRes = await ghFetch(
+          `${GH_API}/repos/${OWNER}/${REPO}/actions/runs/${currentRun.runId}/cancel`,
+          { method: 'POST' }
+        );
+        if (cancelRes.status === 202) {
+          sendJson(res, 202, { cancelling: true });
+        } else {
+          const text = await cancelRes.text();
+          sendJson(res, 500, { error: `Cancel failed: ${cancelRes.status} ${text}` });
+        }
+      } catch (err) {
+        sendJson(res, 500, { error: err.message });
+      }
+    })();
     return;
   }
 
@@ -815,7 +970,14 @@ const server = http.createServer((req, res) => {
       try {
         const runId = await dispatchWorkflow(suite);
         if (ACCOUNT_CREATING_SUITES.has(suite)) lastRegistrationRunAt = Date.now();
-        currentRun = { runId, suite, status: 'queued', reportFetched: false, reportReady: false };
+        currentRun = {
+          runId,
+          suite,
+          status: 'queued',
+          reportFetched: false,
+          reportReady: false,
+          dispatchedAt: new Date().toISOString(),
+        };
         sendJson(res, 202, { started: true, runId });
 
         const interval = setInterval(async () => {
