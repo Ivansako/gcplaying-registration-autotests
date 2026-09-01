@@ -1243,10 +1243,37 @@ export class WildiesPage {
    * and flagging one would just bury the one thing that actually
    * matters here — `verifyTranslation()`'s result — in unrelated noise.
    */
-  async captureScreenshot(name: string): Promise<void> {
+  async captureScreenshot(name: string, opts: { fullPage?: boolean; dismissModalFirst?: boolean } = {}): Promise<void> {
+    // `fullPage` defaults to true (the common case: showing whatever page
+    // content this check just verified). Pass `fullPage: false` for a
+    // screenshot taken while the nav drawer is open — confirmed live
+    // 2026-09-01 that the drawer is a `position: fixed` overlay, and
+    // Playwright's fullPage capture scrolls + stitches the page in
+    // segments to build one tall image; a fixed element doesn't scroll
+    // with the rest of the page, so it gets captured again at each
+    // scroll position and composited into the same image — the garbled,
+    // overlapping screenshots this was producing on every "nav menu"
+    // attachment. A plain viewport screenshot has no scrolling/stitching
+    // to go wrong, and the drawer is fully on-screen within one viewport
+    // anyway (that's the whole point of a fixed overlay).
+    const fullPage = opts.fullPage ?? true;
+    // `dismissModalFirst` — confirmed live 2026-09-01 the "Finances"/
+    // reward popup that auto-opens at various points can also do so
+    // right before an UNRELATED screenshot (e.g. "Account menu"'s
+    // screenshot showed the Cashier deposit modal, not the account
+    // dropdown it was supposed to capture). Deliberately opt-in, NOT the
+    // default: at several call sites (Login popup, Sign Up popup, Forgot
+    // Password) the screenshot's own subject IS a `[data-modal-overlay]`
+    // dialog, and `dismissModalIfPresent()` can't tell "the intended
+    // modal" from "an unwanted one" — it would close the very thing
+    // being screenshotted. Only pass this where the screenshot's target
+    // is confirmed NOT itself a modal overlay.
+    if (opts.dismissModalFirst) {
+      await this.dismissModalIfPresent();
+    }
     await step(`Screenshot: ${name}`, async () => {
       await this.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
-      const buffer = await this.page.screenshot({ fullPage: true, timeout: 30_000 });
+      const buffer = await this.page.screenshot({ fullPage, timeout: 30_000 });
       await attachment(name, buffer, ContentType.PNG);
     });
   }
