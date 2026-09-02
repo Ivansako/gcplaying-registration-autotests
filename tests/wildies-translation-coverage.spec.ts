@@ -149,6 +149,39 @@ const ANONYMOUS_PAGES = [
   { path: '/responsible-gambling', name: 'Responsible Gambling' },
 ];
 
+/**
+ * Per-page known-English baselines for `scanForEnglishFallback()` —
+ * confirmed live 2026-09-02: each phrase was pulled from that page's OWN
+ * content (never the shared header/footer, which is `GLOBAL_ENGLISH_UI_PHRASES`'
+ * job via the separate "Footer" test above) and cross-checked against ALL
+ * 9 non-English locales before being added, specifically to avoid a repeat
+ * of the footer incident — a phrase that's identical-by-design across
+ * locales (a retained loanword or industry term) would falsely flag every
+ * locale as broken. Two candidates were dropped this way: "Live Lobby" /
+ * "Game Shows" (Nederlands/Svenska genuinely keep these in English) and
+ * "Customer/Enhanced Due Diligence" (Nederlands keeps standard compliance
+ * terminology in English) — real, correct behavior, not translation bugs.
+ *
+ * "Buy Bonus" and "Tournaments" have no entry — confirmed live their own
+ * content is too thin/generic (a handful of single common words like
+ * "Active"/"Finished") to build a safe multi-word baseline from; adding
+ * one would risk false positives rather than catch anything real.
+ */
+const PAGE_ENGLISH_BASELINES: Record<string, string[]> = {
+  Home: ['Go Wild!', 'Finish your missions, grab your points'],
+  'Casino Lobby': ['Casino Lobby', 'Instant Wins', 'Scratch Cards'],
+  'Live Casino': ['High stakes'],
+  FAQ: ['How to register?', 'I have forgotten my password', 'How can i see game history?'],
+  'Contact Us': ['Live Chat whenever available', 'You can send us your questions 24 hours a day'],
+  'Terms and Conditions': ['TERMS AND CONDITIONS', 'GENERAL TERMS'],
+  'Privacy Policy': ['PRIVACY POLICY', 'LAWFUL BASIS FOR PROCESSING'],
+  'AML-KYC Policy': [
+    'ask for any KYC documentation it deems necessary',
+    'restrict the service, payment, or withdrawal until identity is sufficiently determined',
+  ],
+  'Responsible Gambling': ['RESPONSIBLE GAMING POLICY', 'Player Protection Tools'],
+};
+
 // Confirmed live 2026-08-28 by opening the avatar menu while logged in.
 const AUTHENTICATED_PAGES = [
   { path: '/account/info', name: 'Profile Info' },
@@ -286,12 +319,21 @@ test.describe('beta.wildies.com — translation coverage', () => {
               fullPage: false,
               dismissModalFirst: true,
             });
-            await wildiesPage.verifyTranslation(`${p.name} (${locale.label}, anonymous, ${viewportName})`, [
-              'Main page content',
-              'Side navigation menu',
-              'Language switcher panel',
-              'Footer',
-            ]);
+            // Page-specific English-fallback check — see
+            // `PAGE_ENGLISH_BASELINES`' own comment for how each baseline
+            // was built and verified. Not every page has one (too little
+            // distinctive content on Buy Bonus/Tournaments to check
+            // safely); skipped for English itself, same reasoning as
+            // every other baseline comparison in this suite.
+            const pageBaseline = PAGE_ENGLISH_BASELINES[p.name];
+            const englishFallbackFlagged =
+              pageBaseline && locale.code !== 'en' ? await wildiesPage.scanForEnglishFallback(pageBaseline) : [];
+
+            await wildiesPage.verifyTranslation(
+              `${p.name} (${locale.label}, anonymous, ${viewportName})`,
+              ['Main page content', 'Side navigation menu', 'Language switcher panel', 'Footer'],
+              englishFallbackFlagged
+            );
           });
         }
       }
