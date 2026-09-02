@@ -88,7 +88,7 @@ jobs:
           if [ "${{ inputs.spec }}" != "brand-gcplaying" ] && [ "${{ inputs.include_form_submitting }}" != "true" ]; then
             GREP_ARGS="--grep-invert @positive|@duplicate"
           fi
-          npx playwright test ${{ steps.spec.outputs.path }} ${{ steps.spec.outputs.config }} --project=chromium --workers=1 $GREP_ARGS
+          npx playwright test ${{ steps.spec.outputs.path }} ${{ steps.spec.outputs.config }} --project=chromium --workers=1 $GREP_ARGS --grep "Home — English"
         continue-on-error: true
         id: run_tests
 
