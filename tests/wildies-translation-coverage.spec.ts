@@ -294,6 +294,16 @@ test.describe('beta.wildies.com — translation coverage', () => {
             allure.subSuite(p.name);
             allure.severity('normal');
 
+            // Confirmed live 2026-09-02: bare "Test timeout of 45000ms
+            // exceeded" with no other explanation, on a page that had
+            // actually rendered completely correctly (e.g. Home, Live
+            // Casino) — content-heavy pages (100+ games/providers listed)
+            // now routinely take longer than the 45s default across
+            // navigate + 2 screenshots + side menu + the translation scan.
+            // Same fix already applied to Promotions/Tournaments below for
+            // the same reason.
+            test.setTimeout(90_000);
+
             const wildiesPage = new WildiesPage(page);
             await wildiesPage.visitPage(p.path, locale.path);
             // Screenshot BEFORE the assertion: verifyTranslation() throws on
