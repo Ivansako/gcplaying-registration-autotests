@@ -227,6 +227,30 @@ test.describe('beta.wildies.com — translation coverage', () => {
     });
   });
 
+  // ONE test per locale, not folded into every page check below — see
+  // `WildiesPage.GLOBAL_ENGLISH_UI_PHRASES`'s comment for why: the footer
+  // is present on every page, so running this scan inside
+  // `verifyTranslation()` turned one real missing translation into ~50
+  // duplicate red tests (confirmed live 2026-09-02, a genuinely bad
+  // report to hand anyone). Desktop only — footer copy doesn't depend on
+  // viewport, so a second Mobile pass would just be more duplicate noise
+  // for the same root cause.
+  test.describe('Footer', () => {
+    test.use({ ...VIEWPORTS[0].config });
+
+    for (const locale of EXISTING_LOCALES) {
+      test(`Footer — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+        allure.subSuite('Footer');
+        allure.severity('normal');
+
+        const wildiesPage = new WildiesPage(page);
+        await wildiesPage.open(locale.path);
+        await wildiesPage.captureScreenshot(`Footer — ${locale.label}`, { dismissModalFirst: true });
+        await wildiesPage.verifyFooterTranslation(locale.label, locale.code);
+      });
+    }
+  });
+
   for (const { name: viewportName, config: viewportConfig } of VIEWPORTS) {
     test.describe(viewportName, () => {
       test.use({ ...viewportConfig });

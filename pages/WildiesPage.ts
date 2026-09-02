@@ -918,35 +918,36 @@ export class WildiesPage {
 
   /**
    * Same check as `scanFrameForEnglishFallback()`, against the top-level
-   * page instead of a cross-origin widget iframe. Backs
-   * `GLOBAL_ENGLISH_UI_PHRASES` below, wired into `verifyTranslation()` so
-   * every single check across the suite gets this for free — not just the
-   * Sportsbook widget, which already had its own narrower version of this
-   * same problem.
+   * page instead of a cross-origin widget iframe. `scope` defaults to the
+   * whole page but is deliberately overridable — see `GLOBAL_ENGLISH_UI_PHRASES`'
+   * own comment for why this is scoped to the footer alone in practice,
+   * via a dedicated once-per-locale test, rather than run on every page.
    */
-  async scanForEnglishFallback(englishPhrases: string[]): Promise<string[]> {
-    const bodyText = await this.page.locator('body').innerText();
+  async scanForEnglishFallback(englishPhrases: string[], scope: Locator = this.page.locator('body')): Promise<string[]> {
+    const bodyText = await scope.innerText();
     return englishPhrases
       .filter((phrase) => bodyText.includes(phrase))
       .map((phrase) => `Still shows the English "${phrase}" — this page appears to have fallen back to English instead of translating`);
   }
 
   /**
-   * Global, page-agnostic English phrases pulled from the site footer
-   * (present on virtually every routed page, so this check rides along on
-   * every `verifyTranslation()` call for free) — confirmed live
-   * 2026-09-01 by switching the real UI locale switcher to Español,
-   * Ελληνικά, and Français and diffing each footer against this exact
-   * list before adding a single phrase, specifically to rule out a
+   * Global, page-agnostic English phrases pulled from the site footer —
+   * confirmed live 2026-09-01 by switching the real UI locale switcher to
+   * Español, Ελληνικά, and Français and diffing each footer against this
+   * exact list before adding a single phrase, specifically to rule out a
    * coincidental collision with a real, correctly-translated string (the
    * same discipline `SPORTSBOOK_ENGLISH_BASELINE` in the spec file
    * already follows). That same live check is what surfaced a real bug:
    * Español's footer renders "About Us" verbatim in English while every
-   * other footer link is translated — this list is what makes
-   * `verifyTranslation()` catch that automatically going forward, instead
-   * of it only being visible to someone who happens to read the footer by
-   * eye. Deliberately multi-word only, same rationale as
-   * `scanFrameForEnglishFallback()`'s own comment.
+   * other footer link is translated.
+   *
+   * Checked via ONE dedicated "Footer" test per locale (see
+   * `wildies-translation-coverage.spec.ts`), NOT wired into
+   * `verifyTranslation()` — confirmed live 2026-09-02 that running it on
+   * every single page check turns one real missing translation into ~50
+   * separate red tests (the footer is present on every page), burying
+   * every other finding under duplicate noise of the exact same root
+   * cause. One missing string should read as one red test, not fifty.
    */
   private static readonly GLOBAL_ENGLISH_UI_PHRASES = [
     'Contact Us',
@@ -1284,19 +1285,7 @@ export class WildiesPage {
   async verifyTranslation(pageLabel: string, sectionsChecked: string[], extraFlagged: string[] = []): Promise<void> {
     await step(`Verify translation completeness: ${pageLabel}`, async () => {
       const pageFlagged = await this.scanForUntranslatedText();
-
-      // Skipped for English itself — every phrase in the baseline is
-      // English, so the check would trivially "fail" on the one locale
-      // where that text is correct.
-      const currentLocale = await this.getCurrentLocale();
-      const englishFallbackFlagged =
-        currentLocale === 'en' ? [] : await this.scanForEnglishFallback(WildiesPage.GLOBAL_ENGLISH_UI_PHRASES);
-
-      const flagged = [
-        ...pageFlagged,
-        ...englishFallbackFlagged,
-        ...extraFlagged.filter((f) => !pageFlagged.includes(f) && !englishFallbackFlagged.includes(f)),
-      ];
+      const flagged = [...pageFlagged, ...extraFlagged.filter((f) => !pageFlagged.includes(f))];
 
       // A translated string that's longer than its English original is a
       // common source of mobile layout breakage (German/Finnish especially)
@@ -1314,20 +1303,13 @@ export class WildiesPage {
       }
 
       const sectionsText = sectionsChecked.length ? ` Sections examined: ${sectionsChecked.join(', ')}.` : '';
-      const englishFallbackNote =
-        currentLocale === 'en'
-          ? ''
-          : ' The page was also checked against a known-English baseline (common footer/nav phrases such as ' +
-            '"About Us", "Privacy Policy", "Terms and Conditions") to catch a silent fallback to English — a ' +
-            'gap the raw-key scan above cannot see, since fallen-back text renders as real English words, not ' +
-            'a broken key.';
       const whatWasChecked =
         `<strong>${pageLabel}</strong> was opened and every visible piece of text on the page — headings, ` +
         'buttons, menu items, form labels, footer links, and any popups/panels opened as part of this check — ' +
         'was scanned for raw, untranslated i18n keys (patterns such as a dot.separated.key, ' +
         'SCREAMING_SNAKE_CASE, a leftover {{ placeholder }}, or a stringified JS value like "undefined" ' +
         `leaking into the UI), and the page's rendered width was checked against the viewport to catch a ` +
-        `translated string long enough to break the layout.${englishFallbackNote}${sectionsText}`;
+        `translated string long enough to break the layout.${sectionsText}`;
 
       // Three clearly separated paragraphs, same shape whether this passes
       // or fails — confirmed 2026-08-31 the previous single run-on
@@ -1357,6 +1339,41 @@ export class WildiesPage {
         explainsFailure: true,
       });
       expect(flagged, `Untranslated text found on ${pageLabel}: ${flagged.join(', ')}`).toEqual([]);
+    });
+  }
+
+  /**
+   * Checks the footer specifically against `GLOBAL_ENGLISH_UI_PHRASES` —
+   * ONE call per locale (see the call site's own comment for why this
+   * isn't folded into `verifyTranslation()`), on the homepage, since the
+   * footer is identical sitewide. Skipped for English itself, same
+   * reasoning as every other English-baseline comparison in this file.
+   */
+  async verifyFooterTranslation(localeLabel: string, localeCode: string): Promise<void> {
+    await step(`Verify footer translation: ${localeLabel}`, async () => {
+      const flagged =
+        localeCode === 'en' ? [] : await this.scanForEnglishFallback(WildiesPage.GLOBAL_ENGLISH_UI_PHRASES, this.page.locator('footer'));
+
+      if (flagged.length === 0) {
+        await descriptionHtml(
+          `<div style="font-family: sans-serif; font-size: 13px; line-height: 1.6;">` +
+            `<p><strong>What was checked:</strong> The footer under "${localeLabel}" was scanned against a ` +
+            'known-English phrase baseline ("About Us", "Privacy Policy", "Terms and Conditions", ...) to ' +
+            'catch a link silently staying in English instead of translating.</p>' +
+            `<p><strong>Result:</strong> ✅ Fully translated — no English fallback found.</p></div>`
+        );
+        return;
+      }
+
+      await this.flagIssue('Footer', {
+        severity: 'High (content/localization bug)',
+        rootCause: `❌ ${flagged.length} footer link(s) still show English under "${localeLabel}": ${flagged.join(', ')}.`,
+        whatToCheck:
+          `Open the footer under "${localeLabel}" in a real browser and confirm the link(s) above render in ` +
+          'English instead of a real translation. Usually a missing translation entry for this locale.',
+        explainsFailure: true,
+      });
+      expect(flagged, `Footer shows English fallback under ${localeLabel}: ${flagged.join(', ')}`).toEqual([]);
     });
   }
 
