@@ -2,20 +2,8 @@ import { devices } from '@playwright/test';
 import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
-import { EXISTING_LOCALES, PENDING_LOCALES, WildiesLocale } from '../utils/wildiesLocales';
+import { EXISTING_LOCALES } from '../utils/wildiesLocales';
 import { SEED_ACCOUNT, ACCOUNT_POOL, WildiesAccount, nextPooledAccount } from '../utils/wildiesAccounts';
-
-// Covers the 5 pending locales too, not just the 6 already live — each
-// pending-locale test self-skips (see `ensureLocaleLive` below) until the
-// site actually offers it, then starts running for real with no code
-// change, same "ready ahead of time" design as
-// `tests/wildies-localizations.spec.ts`. Caveat inherited from that file:
-// `PENDING_LOCALES`' labels are an unconfirmed best guess (e.g. "Deutsch")
-// — if the real dropdown ever shows a different native name, the
-// live-check below would keep skipping even after deployment; re-confirm
-// the label against `wildies-localizations.spec.ts`'s "Switcher lists
-// every currently available locale" test output once each locale ships.
-const ALL_LOCALES = [...EXISTING_LOCALES, ...PENDING_LOCALES];
 
 // Fixed English UI strings from the Sportsbook "My Bets" tab — confirmed
 // live 2026-08-30 that under Español the whole widget renders these
@@ -32,23 +20,6 @@ const SPORTSBOOK_ENGLISH_BASELINE = [
   'Total Return',
   'Cash Out',
 ];
-
-/**
- * For a not-yet-live locale, skips the test with a clear reason instead of
- * navigating straight to its URL prefix (e.g. `/de/casino`) — that path's
- * behavior before the locale is deployed is unconfirmed (could 404, could
- * redirect), so this checks the dropdown from a known-good page (the
- * default-locale home) first. No-op for an already-live locale.
- */
-async function ensureLocaleLive(wildiesPage: WildiesPage, locale: WildiesLocale): Promise<void> {
-  if (!PENDING_LOCALES.some((p) => p.code === locale.code)) return;
-  await wildiesPage.open();
-  const labels = await wildiesPage.getAvailableLocaleLabels();
-  test.skip(
-    !labels.includes(locale.label),
-    `"${locale.label}" not yet deployed — this test activates automatically once it ships, no code change needed`
-  );
-}
 
 /**
  * Logs in with `account`, falling back to the next pooled account once if
@@ -97,10 +68,10 @@ const hasCreds = !!SEED_ACCOUNT && ACCOUNT_POOL.length > 0;
  * (including Forgot Password and a real duplicate-email registration
  * attempt), the account avatar dropdown, every tournament's own detail
  * page, a non-existent-page error boundary, then every authenticated
- * account page, checked in every locale currently live PLUS every
- * pending locale (self-skipping until each one actually ships — see
- * `ensureLocaleLive` above), for raw/untranslated text leaking into the
- * UI (see `WildiesPage.verifyTranslation()` for the detection heuristic
+ * account page, checked in every locale currently live (all 10 from the
+ * original rollout ticket, minus Norwegian, which was confirmed
+ * 2026-09-02 to not be shipping), for raw/untranslated text leaking into
+ * the UI (see `WildiesPage.verifyTranslation()` for the detection heuristic
  * and how it writes its own Description) AND for a translated string
  * breaking the page's layout (checked at both a desktop and a mobile
  * viewport — see `VIEWPORTS` above). Complements
@@ -261,13 +232,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.use({ ...viewportConfig });
 
       for (const p of ANONYMOUS_PAGES) {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             allure.subSuite(p.name);
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage(p.path, locale.path);
             // Screenshot BEFORE the assertion: verifyTranslation() throws on
             // a real finding, and a screenshot taken only after it would
@@ -303,13 +273,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       }
 
       test.describe("Sportsbook lobby (including the odds widget)", () => {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Sportsbook Lobby — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             allure.subSuite('Sportsbook Lobby');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage('/sport', locale.path);
             await page.waitForTimeout(8_000); // the widget iframe is slow to hydrate
             const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
@@ -336,7 +305,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
       });
 
       test.describe("Promotions (including each promotion's own Terms & Conditions)", () => {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Promotions — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             // Confirmed live 2026-08-31: this discovery-driven check opens
             // EVERY promotion's own T&C, and the site now has enough of
@@ -348,7 +317,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitPage('/promotions', locale.path);
             const { found, opened, flagged } = await wildiesPage.verifyAllPromotionTerms();
             // A found-but-opened-none result means the "More info" buttons
@@ -381,7 +349,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
       });
 
       test.describe("Tournaments (including each tournament's own detail page)", () => {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Tournament details — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             // Same reasoning as Promotions' identical bump above.
             test.setTimeout(90_000);
@@ -389,7 +357,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             const { found, opened, flagged } = await wildiesPage.verifyAllTournamentDetails(locale.path);
             // Same reasoning as the Promotions check above: found-but-
             // opened-none means the interaction is broken, not that there
@@ -426,13 +393,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       // and pasted unrelated background page content below the fold
       // instead of the modal's own (dimmed) backdrop.
       test.describe('Login / Sign Up popup', () => {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Login popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             allure.subSuite('Login / Sign Up');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openAuthModal('login');
             await wildiesPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`, { fullPage: false });
@@ -448,7 +414,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openAuthModal('register');
             await wildiesPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`, { fullPage: false });
@@ -465,7 +430,6 @@ test.describe('beta.wildies.com — translation coverage', () => {
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.openForgotPasswordForm();
             const requestFormFlagged = await wildiesPage.scanForUntranslatedText();
@@ -491,13 +455,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe('Registration errors', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Duplicate email error — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             allure.subSuite('Login / Sign Up');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             const { attempted } = await wildiesPage.attemptDuplicateEmailRegistration(SEED_ACCOUNT!.email);
             if (!attempted) {
@@ -523,13 +486,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       });
 
       test.describe('Error messages and notifications', () => {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Login error — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             allure.subSuite('Login / Sign Up');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.expectLoginFailure(SEED_ACCOUNT?.email ?? 'wiztest008@gmail.com', 'not-the-real-password');
             await wildiesPage.captureScreenshot(`Login error — ${locale.label} (${viewportName})`, { fullPage: false });
@@ -541,13 +503,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       });
 
       test.describe('Non-existent page (error boundary)', () => {
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`404 / error boundary — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
             allure.subSuite('Error boundary');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.visitNonExistentPage(locale.path);
             await wildiesPage.captureScreenshot(`404 — ${locale.label} (${viewportName})`, {
               dismissModalFirst: true,
@@ -563,13 +524,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe('Account menu (avatar dropdown)', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Account menu — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
             allure.subSuite('Account menu');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             const account = nextPooledAccount();
             await wildiesPage.open(locale.path);
             await loginWithFallback(wildiesPage, account);
@@ -595,14 +555,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe('Gamification (Match X)', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Gamification — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
             test.setTimeout(90_000);
             allure.subSuite('Gamification');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             const account = nextPooledAccount();
             await wildiesPage.open(locale.path);
             await loginWithFallback(wildiesPage, account);
@@ -652,13 +611,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
         for (const p of AUTHENTICATED_PAGES) {
-          for (const locale of ALL_LOCALES) {
+          for (const locale of EXISTING_LOCALES) {
             test(`${p.name} — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
               allure.subSuite(p.name);
               allure.severity('normal');
 
               const wildiesPage = new WildiesPage(page);
-              await ensureLocaleLive(wildiesPage, locale);
               const account = nextPooledAccount();
               await wildiesPage.open(locale.path);
               await loginWithFallback(wildiesPage, account);
@@ -689,13 +647,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe('Cashier (Deposit / Withdraw)', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Cashier — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
             allure.subSuite('Cashier');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             const account = nextPooledAccount();
             await wildiesPage.open(locale.path);
             await loginWithFallback(wildiesPage, account);
@@ -727,13 +684,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe('Game History (after the seeded real spin)', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Game History — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
             allure.subSuite('Game History');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
             const modalFlagged = wildiesPage.takePendingModalFindings();
@@ -756,13 +712,12 @@ test.describe('beta.wildies.com — translation coverage', () => {
       test.describe('Sportsbook My Bets (after the seeded real bet)', () => {
         test.skip(!hasCreds, 'No Wildies test accounts configured');
 
-        for (const locale of ALL_LOCALES) {
+        for (const locale of EXISTING_LOCALES) {
           test(`Sportsbook My Bets — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
             allure.subSuite('Sportsbook My Bets');
             allure.severity('normal');
 
             const wildiesPage = new WildiesPage(page);
-            await ensureLocaleLive(wildiesPage, locale);
             await wildiesPage.open(locale.path);
             await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
             const modalFlagged = wildiesPage.takePendingModalFindings();

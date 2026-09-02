@@ -17,6 +17,12 @@ export interface WildiesLocale {
   path: string;
 }
 
+// Deutsch/Suomi/Español/Svenska confirmed live in the dropdown 2026-09-02
+// — their guessed labels from the "Add German | Finnish | Spanish |
+// Swedish | Norwegian languages to the Drop Down" ticket turned out to
+// match the real dropdown exactly. Norwegian, the 5th language from that
+// same ticket, was confirmed 2026-09-02 to not be shipping — dropped
+// rather than kept as a permanently-skipping placeholder.
 export const EXISTING_LOCALES: WildiesLocale[] = [
   { label: 'English', code: 'en', path: 'en' },
   { label: 'Nederlands', code: 'nl', path: 'nl' },
@@ -24,17 +30,8 @@ export const EXISTING_LOCALES: WildiesLocale[] = [
   { label: 'Italiano', code: 'it', path: 'it' },
   { label: 'Português', code: 'pt', path: 'pt' },
   { label: 'Ελληνικά', code: 'el', path: 'el' },
-];
-
-// Not yet deployed — see "Add German | Finnish | Spanish | Swedish |
-// Norwegian languages to the Drop Down" ticket. Labels are a best guess
-// at each language's native self-name, following the pattern above
-// ("Nederlands" not "Dutch") — unconfirmed, since none of these exist in
-// the live dropdown yet to check against.
-export const PENDING_LOCALES: WildiesLocale[] = [
   { label: 'Deutsch', code: 'de', path: 'de' },
   { label: 'Suomi', code: 'fi', path: 'fi' },
   { label: 'Español', code: 'es', path: 'es' },
   { label: 'Svenska', code: 'sv', path: 'sv' },
-  { label: 'Norsk', code: 'no', path: 'no' },
 ];

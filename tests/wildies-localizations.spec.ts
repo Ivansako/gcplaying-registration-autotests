@@ -1,16 +1,18 @@
 import { test, expect } from '../utils/testWithWildiesAuth';
 import { allure } from 'allure-playwright';
 import { WildiesPage } from '../pages/WildiesPage';
-import { EXISTING_LOCALES, PENDING_LOCALES } from '../utils/wildiesLocales';
+import { EXISTING_LOCALES } from '../utils/wildiesLocales';
 
 /**
  * beta.wildies.com — locale switcher mechanics (URL scheme, dropdown
- * options, `<html lang>` updates), written ahead of the
- * German/Finnish/Spanish/Swedish/Norwegian rollout (see the "Add German |
- * Finnish | Spanish | Swedish | Norwegian languages to the Drop Down and
- * deploy to Beta" ticket) so it's ready the moment they land. Site-wide
- * translation *completeness* (no untranslated keys leaking through) is a
- * separate concern — see `tests/wildies-translation-coverage.spec.ts`.
+ * options, `<html lang>` updates). Covers all 10 locales confirmed live
+ * as of 2026-09-02 (the original "Add German | Finnish | Spanish |
+ * Swedish | Norwegian languages to the Drop Down" ticket shipped 4 of its
+ * 5 languages — Norwegian was confirmed not to be shipping and was
+ * dropped from `wildiesLocales.ts` rather than kept as a permanently-
+ * skipping placeholder). Site-wide translation *completeness* (no
+ * untranslated keys leaking through) is a separate concern — see
+ * `tests/wildies-translation-coverage.spec.ts`.
  *
  * Separate brand from gcplaying0175.com — run via
  * `playwright.wildies.config.ts` (its own Allure results/report
@@ -72,11 +74,7 @@ test.describe('beta.wildies.com — locale switching', () => {
 
   test('Switcher lists every currently available locale', { tag: ['@localization'] }, async ({ page }) => {
     allure.severity('normal');
-    allure.description(
-      'Reads the sidebar language dropdown and confirms it lists every locale known to already be live. Also ' +
-        "records (as a parameter, without failing) which of the 5 pending locales — if any — are already in " +
-        "the dropdown, so this test's own run history documents the rollout as it happens."
-    );
+    allure.description('Reads the sidebar language dropdown and confirms it lists every locale known to already be live.');
 
     const wildiesPage = new WildiesPage(page);
     await wildiesPage.open();
@@ -86,9 +84,6 @@ test.describe('beta.wildies.com — locale switching', () => {
     for (const locale of EXISTING_LOCALES) {
       expect(labels).toContain(locale.label);
     }
-
-    const nowLive = PENDING_LOCALES.filter((l) => labels.includes(l.label));
-    allure.parameter('Pending locales already live', nowLive.length > 0 ? nowLive.map((l) => l.label).join(', ') : 'none yet');
   });
 
   test.describe('Switch via the sidebar dropdown', () => {
@@ -106,28 +101,6 @@ test.describe('beta.wildies.com — locale switching', () => {
 
         const wildiesPage = new WildiesPage(page);
         await wildiesPage.open();
-        const lang = await wildiesPage.switchLocale(locale.label);
-        expect(lang).toBe(locale.code);
-        await wildiesPage.captureScreenshot(`${locale.label} — via dropdown`);
-      });
-    }
-  });
-
-  test.describe('Pending locales (German/Finnish/Spanish/Swedish/Norwegian rollout)', () => {
-    for (const locale of PENDING_LOCALES) {
-      test(`${locale.label} becomes available once deployed`, { tag: ['@localization', '@pending'] }, async ({ page }) => {
-        allure.severity('normal');
-        allure.description(
-          `Not yet live as of 2026-08-28 — self-skips with a clear reason while "${locale.label}" is absent ` +
-            `from the dropdown. Starts actually validating (URL "/${locale.path}", <html lang="${locale.code}">, ` +
-            'a full UI check) automatically the moment it ships — no code change needed, just re-run this suite.'
-        );
-
-        const wildiesPage = new WildiesPage(page);
-        await wildiesPage.open();
-        const labels = await wildiesPage.getAvailableLocaleLabels();
-        test.skip(!labels.includes(locale.label), `"${locale.label}" not yet in the dropdown — not deployed yet`);
-
         const lang = await wildiesPage.switchLocale(locale.label);
         expect(lang).toBe(locale.code);
         await wildiesPage.captureScreenshot(`${locale.label} — via dropdown`);
