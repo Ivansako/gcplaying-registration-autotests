@@ -21,6 +21,31 @@ const SPORTSBOOK_ENGLISH_BASELINE = [
   'Cash Out',
 ];
 
+// Gamification widget's Levels tab — the Smartico integration is shared
+// infrastructure across multiple brands, and per an internal reference
+// doc (2026-09-02) there was a past incident where adding a new locale
+// pulled level names from a DIFFERENT brand instead of Wildies' own —
+// explicitly called out as never acceptable. Confirmed live 2026-09-02
+// across all 9 currently-live locales (en/de/es/el/nl/fr/it/pt/fi) that
+// the real names are exactly this list right now, unchanged regardless
+// of locale (see `WildiesPage`'s own note on `openGamificationSection()`/
+// `gamificationFrame` for why this widget doesn't follow site locale at
+// all — that's a separate, already-known integration gap, not what this
+// checks). This is a brand-identity regression guard, not a translation
+// check: every name here is a literal product name, expected verbatim in
+// every locale — if even one goes missing, the tab is either broken or
+// has reverted to showing another brand's levels.
+const WILDIES_LEVEL_NAMES = [
+  'Wild Entry',
+  'Wild Entry 2',
+  'Wild Entry 3',
+  'Wild Entry 4',
+  'Wild Rising',
+  'Wild Power',
+  'Wild Supreme',
+  'Ultimate Wild',
+];
+
 /**
  * Logs in with `account`, falling back to the next pooled account once if
  * the login itself never completes (the balance never appears — see
@@ -611,9 +636,13 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await loginWithFallback(wildiesPage, account);
             const modalFlagged = wildiesPage.takePendingModalFindings();
             await wildiesPage.openAccountMenu();
+            // NOT `dismissModalFirst` — confirmed live 2026-09-02 the
+            // dropdown itself IS a `[data-modal-overlay="true"]` element on
+            // mobile, same reasoning as Login popup/Cashier below: the
+            // modal is the screenshot's own subject, dismissing it first
+            // would close the very thing this screenshot exists to show.
             await wildiesPage.captureScreenshot(`Account menu — ${locale.label} (${viewportName})`, {
               fullPage: false,
-              dismissModalFirst: true,
             });
             await wildiesPage.verifyTranslation(
               `Account menu (${locale.label}, logged in, ${viewportName})`,
@@ -657,6 +686,19 @@ test.describe('beta.wildies.com — translation coverage', () => {
             for (let section = 0; section < 5; section++) {
               await wildiesPage.openGamificationSection(section);
               pushUnique(await wildiesPage.scanFrameForUntranslatedText(wildiesPage.gamificationFrame));
+              if (section === 2) {
+                // Levels — brand-identity regression guard, see
+                // `WILDIES_LEVEL_NAMES`'s own comment.
+                const levelsText = await wildiesPage.gamificationFrame.locator('body').innerText();
+                const missingLevels = WILDIES_LEVEL_NAMES.filter((name) => !levelsText.includes(name));
+                pushUnique(
+                  missingLevels.map(
+                    (name) =>
+                      `Levels tab is missing the expected level "${name}" — either broken or showing a ` +
+                      "different brand's levels instead of Wildies' own"
+                  )
+                );
+              }
               const subTabCount = await wildiesPage.gamificationSubTabCount();
               for (let sub = 0; sub < subTabCount; sub++) {
                 await wildiesPage.openGamificationSubTab(sub);
