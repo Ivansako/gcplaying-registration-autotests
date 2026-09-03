@@ -585,31 +585,33 @@ export class WildiesPage {
     await step('Open the account avatar dropdown', async () => {
       const wrapperButtons = this.page.locator('header button[data-icon-button-type="wrapper"]');
       const modalOverlay = this.page.locator('[data-modal-overlay="true"]').first();
-      // Confirmed live 2026-09-01 via full step-timeline inspection: on a
-      // zero-balance pooled account (unlike SEED_ACCOUNT, which carries a
-      // real balance), clicking the avatar button reliably reopens the
-      // "Finances" deposit-nag popup INSTEAD of the account dropdown —
-      // observed 4/4 attempts in a row, not an occasional race. It adds
-      // its own close button (also `data-icon-button-type="wrapper"`),
-      // which satisfied a raw wrapper-button-count check without the
-      // actual dropdown ever opening — `verifyTranslation()`'s DOM scan
-      // still passed vacuously (nothing to find in an empty search space
-      // isn't the same as "translated correctly"), and the screenshot
-      // showed neither the dropdown nor the popup, since
-      // `dismissModalFirst` correctly closed the popup right after. This
-      // looks like real site behavior (a zero-balance account being
-      // blocked from its own account menu until it deposits), not
-      // automation flakiness — retrying more doesn't out-wait it.
-      // Still retries a few times in case a GIVEN run's popup genuinely
-      // is just a one-off race, but raises a clear, specific error if it
-      // isn't, rather than silently passing with the wrong screenshot.
+      // Confirmed live 2026-09-02: on mobile, the account dropdown itself
+      // IS a `[data-modal-overlay="true"]` element (a full-screen sheet),
+      // identifiable by `data-modal="userHeaderProfile"` — a DIFFERENT
+      // thing from an actual blocking popup (the "Finances" deposit-nag,
+      // confirmed live 2026-09-01 on a zero-balance account). The
+      // previous version of this method treated ANY visible modal-overlay
+      // as "must be a blocking popup, not the real menu" and kept
+      // dismissing+retrying its own correctly-opened dropdown on mobile
+      // every single time, always failing after 4 attempts even when
+      // attempt 1 had already succeeded — a real bug in this test, not a
+      // site issue (confirmed via step-by-step reproduction: the
+      // "blocking modal" it kept closing contained "Profile Info",
+      // "Notifications", "Logout", etc. — the dropdown's own items).
+      const realDropdown = this.page.locator('[data-modal="userHeaderProfile"]');
       for (let attempt = 0; attempt < 4; attempt++) {
-        // Swallow a failed dismiss — confirmed live 2026-09-01 the
-        // "Finances" popup can be persistent enough that
-        // dismissModalIfPresent()'s own `toBeHidden` wait times out and
-        // throws, which would otherwise abort this whole retry instead
-        // of giving the next attempt a chance.
-        await this.dismissModalIfPresent().catch(() => {});
+        if (await realDropdown.isVisible().catch(() => false)) return; // already open from a previous attempt
+        // Swallow a failed dismiss — the "Finances" popup can be
+        // persistent enough that dismissModalIfPresent()'s own
+        // `toBeHidden` wait times out and throws, which would otherwise
+        // abort this whole retry instead of giving the next attempt a
+        // chance. Deliberately does NOT dismiss `userHeaderProfile` itself
+        // — only unrelated modals — since `dismissModalIfPresent()` uses
+        // the same generic `[data-modal-overlay="true"]` selector and
+        // would otherwise close the real dropdown right after opening it.
+        if (!(await realDropdown.isVisible().catch(() => false))) {
+          await this.dismissModalIfPresent().catch(() => {});
+        }
         try {
           await wrapperButtons.last().click();
           // Opening the dropdown adds its own close button (also
@@ -620,7 +622,8 @@ export class WildiesPage {
         } catch {
           continue; // give the next attempt a chance instead of aborting
         }
-        if (!(await modalOverlay.isVisible().catch(() => false))) return; // genuinely the dropdown, not a modal
+        if (await realDropdown.isVisible().catch(() => false)) return; // genuinely the account dropdown
+        if (!(await modalOverlay.isVisible().catch(() => false))) return; // no modal at all — desktop's plain (non-modal) dropdown
         // A short settle delay — confirmed live 2026-09-01 that
         // hammering the same click immediately can just re-trigger the
         // nag again; giving it a beat before the next attempt measurably
@@ -635,9 +638,10 @@ export class WildiesPage {
       // every other finding in this file does: via `expect()`.
       expect(
         false,
-        'The account avatar dropdown never opened after 4 attempts — every click reopened the "Finances" ' +
-          'deposit-nag popup instead. Confirmed live 2026-09-01 this happens reliably (4/4) on a zero-balance ' +
-          'account; looks like real site behavior blocking the account menu until a deposit is made, not a flake.'
+        'The account avatar dropdown never opened after 4 attempts — every click reopened a DIFFERENT popup ' +
+          '(not the account menu itself) instead. Confirmed live 2026-09-01 a "Finances" deposit-nag popup can ' +
+          'do this on a zero-balance account; looks like real site behavior blocking the account menu until a ' +
+          'deposit is made, not a flake.'
       ).toBe(true);
     });
   }
@@ -1415,7 +1419,43 @@ export class WildiesPage {
     }
     await step(`Screenshot: ${name}`, async () => {
       await this.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
+      // Confirmed live 2026-09-02: on mobile, `#bottom-navigation` (the
+      // "Menu/Casino/Deposit/Live Casino/Sports" bar) is ALWAYS present
+      // and `position: fixed` — unlike the nav drawer/modals above, this
+      // one isn't opt-in, it's on every single mobile page, so a plain
+      // `fullPage: true` screenshot of any content-heavy page (Home,
+      // Casino Lobby, ...) pasted a stray copy of it mid-page wherever
+      // the stitching happened to land, on what looked like a huge
+      // fraction of every mobile screenshot in the suite. A plain
+      // `el.style.display = 'none'` was NOT enough — confirmed live it
+      // gets reset mid-capture (this nav appears to have its own
+      // scroll-driven show/hide behavior that fights a one-off inline
+      // style change during the multi-second full-page scroll-and-stitch).
+      // An injected `<style>` rule with `!important` survives that,
+      // since it out-prioritizes any inline style the component's own JS
+      // sets on subsequent re-renders. Hidden here (not skipped via
+      // `fullPage: false`) specifically so long pages still get a real
+      // full-page screenshot instead of losing that coverage — a no-op
+      // on Desktop, where this element doesn't render.
+      const HIDE_STYLE_ID = 'wildies-test-hide-bottom-nav';
+      if (fullPage) {
+        await this.page
+          .evaluate((id) => {
+            const style = document.createElement('style');
+            style.id = id;
+            style.textContent = '#bottom-navigation { display: none !important; }';
+            document.head.appendChild(style);
+          }, HIDE_STYLE_ID)
+          .catch(() => {});
+      }
       const buffer = await this.page.screenshot({ fullPage, timeout: 30_000 });
+      if (fullPage) {
+        await this.page
+          .evaluate((id) => {
+            document.getElementById(id)?.remove();
+          }, HIDE_STYLE_ID)
+          .catch(() => {});
+      }
       await attachment(name, buffer, ContentType.PNG);
     });
   }
