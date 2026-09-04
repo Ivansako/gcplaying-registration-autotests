@@ -109,6 +109,9 @@ const CATEGORIES = [
   { value: 'product', label: 'Product' },
   { value: 'localization', label: 'Localization' },
   { value: 'payments', label: 'Payments' },
+  { value: 'provider-launch', label: 'Provider Launch' },
+  { value: 'brand-launch', label: 'Brand Launch' },
+  { value: 'legal-check', label: 'Legal Check' },
   { value: 'all', label: 'All suites' },
 ];
 
