@@ -3,8 +3,11 @@ allure-results/
 allure-report/
 allure-results-wildies/
 allure-report-wildies/
+allure-results-spinoloco/
+allure-report-spinoloco/
 playwright-report/
 playwright-report-wildies/
+playwright-report-spinoloco/
 test-results/
 .env
 .claude/

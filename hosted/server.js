@@ -101,6 +101,21 @@ const SUITES = [
       'wiztest910z@gmail.com / Wiztest910z',
     category: 'localization',
   },
+  {
+    value: 'spinoloco-provider-launch',
+    label: 'Provider (Vendor) Launch — spinoloco7545.com',
+    sub:
+      'Checks that the whole game catalog is actually launch-ready: every Casino & Live Casino game has a real ' +
+      'thumbnail (not a placeholder), opens without a tech error (geo-block, 500, timeout), is filed under at ' +
+      'least one findable category, and — for providers already investigated — that a real minimum-bet spin goes ' +
+      'through cleanly in both EUR and PLN. The full catalog is thousands of games, so the launch check covers one ' +
+      "day's slice per run and cycles through everything over repeated runs; thumbnails/categories are checked in " +
+      'full every time. Real money moves only on the real-bet check, once per already-investigated provider.' +
+      '<br><br><strong>Test accounts:</strong><br>' +
+      'wiztest+it@gmail.com / Wiztestit — EUR balance<br>' +
+      'wiztest+pl@gmail.com / Wiztestpl — PLN (zł) balance',
+    category: 'provider-launch',
+  },
   { value: 'all', label: 'All suites', sub: 'Everything above', category: 'all' },
 ];
 

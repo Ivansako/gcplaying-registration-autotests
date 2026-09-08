@@ -16,6 +16,10 @@
     "report:wildies:generate": "node scripts/promote-broken-steps.js allure-results-wildies && node scripts/wildies-no-broken.js allure-results-wildies && allure generate allure-results-wildies --clean -o allure-report-wildies",
     "report:wildies:open": "allure open allure-report-wildies",
     "report:wildies": "npm run report:wildies:generate && npm run report:wildies:open",
+    "test:spinoloco": "playwright test --config=playwright.spinoloco.config.ts",
+    "report:spinoloco:generate": "node scripts/promote-broken-steps.js allure-results-spinoloco && allure generate allure-results-spinoloco --clean -o allure-report-spinoloco",
+    "report:spinoloco:open": "allure open allure-report-spinoloco",
+    "report:spinoloco": "npm run report:spinoloco:generate && npm run report:spinoloco:open",
     "ui": "node scripts/test-runner-server.js"
   },
   "devDependencies": {
