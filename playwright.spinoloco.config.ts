@@ -49,10 +49,11 @@ export default defineConfig({
     navigationTimeout: 30_000,
   },
 
+  // Mobile-only (2026-09-08 decision) — see `utils/deviceViewports.ts`.
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Pixel 7'] },
     },
   ],
 });

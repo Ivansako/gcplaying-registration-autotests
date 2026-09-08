@@ -2,6 +2,7 @@ import { test, expect } from '../utils/testWithIssueAnalysis';
 import { allure } from 'allure-playwright';
 import { attachment, ContentType } from 'allure-js-commons';
 import { SpinolocoPage } from '../pages/SpinolocoPage';
+import { MOBILE_VIEWPORT } from '../utils/deviceViewports';
 import { EUR_ACCOUNT, PLN_ACCOUNT, SpinolocoAccount } from '../utils/spinolocoAccounts';
 import { BET_RECIPES } from '../utils/spinolocoBetCoordinates';
 import { recordIssue } from '../utils/issueTracker';
@@ -28,12 +29,14 @@ import { recordIssue } from '../utils/issueTracker';
  *
  * One test per provider (not a loop inside one test) so a single
  * provider's real regression shows as its own red result, not buried
- * inside an aggregate pass/fail. Desktop viewport only, pinned — the
- * recipe coordinates are only valid at the exact viewport size they were
- * confirmed at.
+ * inside an aggregate pass/fail. Mobile viewport only, pinned explicitly
+ * (2026-09-08 decision — see `utils/deviceViewports.ts`) — the recipe
+ * coordinates are only valid at the exact viewport size they were
+ * confirmed at, so every future bet-recipe investigation must be done at
+ * THIS same viewport, not desktop.
  */
 test.describe('spinoloco7545.com — Real Bet Placement', () => {
-  test.use({ viewport: { width: 1280, height: 800 } });
+  test.use({ ...MOBILE_VIEWPORT });
 
   test.beforeEach(async () => {
     allure.parentSuite('Spinoloco');
@@ -72,7 +75,7 @@ test.describe('spinoloco7545.com — Real Bet Placement', () => {
       }
       await page.waitForTimeout(6_000); // let the reels/result settle
 
-      await page.goto('/pl');
+      await page.goto('/');
       await page.waitForLoadState('domcontentloaded');
       const balanceAfterText = await page.locator('header').getByText(/[€$]\s?[\d\s,.]+|[\d\s,.]+\s?zł/i).first().textContent();
 
@@ -84,6 +87,7 @@ test.describe('spinoloco7545.com — Real Bet Placement', () => {
   });
 
   test('Coverage status: which providers still need a bet recipe', { tag: ['@provider-launch'] }, async ({ page }) => {
+    test.setTimeout(20 * 60_000);
     allure.severity('normal');
     allure.description(
       'Compares the full game catalog\'s distinct provider list against `spinolocoBetCoordinates.ts` and reports ' +

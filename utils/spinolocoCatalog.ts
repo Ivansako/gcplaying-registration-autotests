@@ -18,19 +18,44 @@ export function gameKey(g: Pick<GameEntry, 'name' | 'provider'>): string {
 }
 
 /**
- * The 26 CMS "categories" (confirmed live 2026-09-08 via `pageProps.categories`
- * on `/pl/slots`) mix genuine thematic groupings (JACKPOTS, MEGAWAYS,
- * EGYPTIAN, LIVE ROULETTE, ...) with umbrella/system tabs that either
- * contain the ENTIRE catalog by definition (SLOTS = literally the full
- * Slots listing, LIVE = the full Live Casino listing) or are time/rank
- * based rather than a real placement (NEW, TOP PL, FEATURED, New
- * Provider). Counting membership in an umbrella tab as "has a category"
- * would make check #4 pass trivially for every single game — excluded so
- * the check actually verifies genre-level discoverability, matching the
- * brief's own example ("Sweet Bonanza is in Video Slots", not just "is a
- * slot").
+ * Default "Load more" click cap for `SpinolocoPage.collectFullCatalog()`
+ * — overridable via `SPINOLOCO_MAX_LOAD_MORE_CLICKS` for local iteration
+ * (e.g. `SPINOLOCO_MAX_LOAD_MORE_CLICKS=3` to sanity-check pagination
+ * itself in seconds instead of scraping the full ~4371-game catalog).
+ * `undefined` lets the caller fall back to its own default (250) rather
+ * than forcing this value everywhere it's read.
  */
-export const NON_THEMATIC_CATEGORY_LABELS = new Set(['SLOTY', 'LIVE GAMES', 'NEW GAMES', 'TOP PL', 'FEATURED', 'New Provider']);
+export function defaultMaxLoadMoreClicks(): number | undefined {
+  const raw = Number(process.env.SPINOLOCO_MAX_LOAD_MORE_CLICKS);
+  return raw > 0 ? raw : undefined;
+}
+
+/**
+ * The site's category "See all" sections (confirmed live: e.g. "SLOTY"/
+ * all-Slots, "Giochi Top"/Top Games, ...) mix genuine thematic groupings
+ * (Jackpots, Megaways, Egyptian, Live Roulette, ...) with umbrella/system
+ * tabs that contain almost the ENTIRE catalog by definition (an "all
+ * Slots" or "all Live" listing). Counting membership in an umbrella tab
+ * as "has a category" would make check #4 pass trivially for every
+ * single game — excluded so the check actually verifies genre-level
+ * discoverability, matching the brief's own example ("Sweet Bonanza is
+ * in Video Slots", not just "is a slot").
+ *
+ * Detected by COVERAGE RATIO (this section's game count vs. the full
+ * catalog), not by matching specific label text — the labels are
+ * translated per locale (confirmed "SLOTY" in Polish, "Tutti i giochi"/
+ * different wording in Italian) and this automation can't reliably force
+ * one locale (see `SpinolocoPage`'s own comment on geo-IP locale
+ * handling), so a hardcoded label list would silently stop working the
+ * moment the session lands on a different locale than whichever it was
+ * written against.
+ */
+export const UMBRELLA_CATEGORY_COVERAGE_RATIO = 0.85;
+
+export function isUmbrellaCategory(sectionGameCount: number, fullCatalogSize: number): boolean {
+  if (fullCatalogSize === 0) return false;
+  return sectionGameCount / fullCatalogSize >= UMBRELLA_CATEGORY_COVERAGE_RATIO;
+}
 
 /**
  * Which shard of the full launch-check catalog to run today. Sharded

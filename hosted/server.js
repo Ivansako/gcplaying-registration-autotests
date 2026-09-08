@@ -106,10 +106,12 @@ const SUITES = [
     label: 'Provider (Vendor) Launch — spinoloco7545.com',
     sub:
       'Checks that the whole game catalog is actually launch-ready: every Casino & Live Casino game has a real ' +
-      'thumbnail (not a placeholder), opens without a tech error (geo-block, 500, timeout), is filed under at ' +
-      'least one findable category, and — for providers already investigated — that a real minimum-bet spin goes ' +
-      'through cleanly in both EUR and PLN. The full catalog is thousands of games, so the launch check covers one ' +
-      "day's slice per run and cycles through everything over repeated runs; thumbnails/categories are checked in " +
+      'thumbnail (not a placeholder), opens without a tech error (geo-block, 500, timeout) with a screenshot of ' +
+      'every game for a human to confirm its Spin/Play button actually rendered, is filed under at least one ' +
+      'findable category, and — for providers already investigated — that a real minimum-bet spin goes through ' +
+      'cleanly in EUR or PLN. Mobile viewport only (where most real players are). The full catalog is thousands ' +
+      "of games, so the launch check covers one day's slice per run (several games launch in parallel tabs to " +
+      'keep this fast) and cycles through everything over repeated runs; thumbnails/categories are checked in ' +
       'full every time. Real money moves only on the real-bet check, once per already-investigated provider.' +
       '<br><br><strong>Test accounts:</strong><br>' +
       'wiztest+it@gmail.com / Wiztestit — EUR balance<br>' +

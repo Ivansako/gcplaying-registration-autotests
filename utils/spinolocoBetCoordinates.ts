@@ -7,8 +7,10 @@
  * there is no generic "click here" that works across different game
  * engines, so this is filled in incrementally, one provider at a time, by
  * actually opening a representative game from that provider and noting
- * where its bet-reduce and spin controls land at the pinned 1280x800
- * viewport `spinoloco-real-bet.spec.ts` uses.
+ * where its bet-reduce and spin controls land at the pinned MOBILE
+ * viewport `spinoloco-real-bet.spec.ts` uses (`MOBILE_VIEWPORT` /
+ * `devices['Pixel 7']`, 2026-09-08 decision — mobile-only across this
+ * whole suite).
  *
  * A provider with no entry here is SKIPPED by the real-bet check (not
  * silently — it's listed in that test's "pending investigation" finding)

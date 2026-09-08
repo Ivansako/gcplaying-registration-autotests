@@ -1,7 +1,7 @@
 import { expect, Locator, Page } from '@playwright/test';
 import { attachment, step } from 'allure-js-commons';
 import { ContentType } from 'allure-js-commons';
-import { GameEntry, gameKey } from '../utils/spinolocoCatalog';
+import { GameEntry, defaultMaxLoadMoreClicks, gameKey } from '../utils/spinolocoCatalog';
 import { SpinolocoAccount } from '../utils/spinolocoAccounts';
 
 /**
@@ -71,27 +71,61 @@ export class SpinolocoPage {
     });
   }
 
-  async open(path = '/pl'): Promise<void> {
+  /**
+   * The site force-redirects by geo-IP at the SERVER level — confirmed
+   * live 2026-09-08 that requesting `/pl/...` from a non-Polish-resolving
+   * IP 302s to `/it/...` (or whatever locale that IP maps to) even with
+   * an explicit `NEXT_LOCALE=pl` cookie sent, and there is no client-side
+   * language switcher anywhere in the header/side menu/account menu to
+   * override it afterward (confirmed: zero `data-*` attributes anywhere
+   * in the header, unlike Wildies). This automation CANNOT force Polish
+   * content from an arbitrary network — so every navigation below reads
+   * back whatever locale the session actually landed on
+   * (`document.documentElement.lang`, same robust signal
+   * `WildiesPage.getCurrentLocale()` already relies on) and uses THAT
+   * prefix, instead of hardcoding `/pl`.
+   */
+  async open(path = '/'): Promise<void> {
     await step(`Open spinoloco7545.com${path}`, async () => {
       await this.page.goto(path);
       await this.page.waitForLoadState('domcontentloaded');
     });
   }
 
+  async getCurrentLocale(): Promise<string> {
+    return this.page.evaluate(() => document.documentElement.lang || 'pl');
+  }
+
   async login(account: SpinolocoAccount): Promise<void> {
     await step(`Log in as ${account.email} (${account.currency})`, async () => {
-      // Confirmed live 2026-09-08: "Zaloguj się" labels three separate
-      // elements at once the modal is open (header trigger, the modal's
-      // own Login/Sign Up tab, and the submit button) — `.first()` before
-      // the modal exists unambiguously hits the header trigger; `.last()`
-      // after the form is filled hits the submit button, since it's the
-      // last such element in DOM order.
-      await this.page.getByRole('button', { name: 'Zaloguj się' }).first().click();
-      const emailInput = this.page.getByPlaceholder('Nazwa użytkownika/Email');
-      await emailInput.waitFor({ timeout: 10_000 });
+      // No stable `data-*` hook and the label text varies by locale (see
+      // this class's own comment) — instead, click header buttons one at
+      // a time until a password field appears. Locale/order-independent
+      // by construction: whichever button actually opens the login form
+      // is "the login trigger", regardless of what it says.
+      const passwordInput = this.page.locator('input[type="password"]');
+      const headerButtons = this.page.locator('header button');
+      const buttonCount = await headerButtons.count();
+      for (let i = 0; i < buttonCount; i++) {
+        if (await passwordInput.isVisible().catch(() => false)) break;
+        await headerButtons.nth(i).click({ timeout: 2_000 }).catch(() => {});
+        if (
+          await passwordInput
+            .waitFor({ state: 'visible', timeout: 1_500 })
+            .then(() => true)
+            .catch(() => false)
+        )
+          break;
+      }
+      await passwordInput.waitFor({ state: 'visible', timeout: 10_000 });
+      // The email/username field: `type="password"`'s own form's other
+      // text input — HTML `type` is locale-independent, unlike a
+      // placeholder string.
+      const form = passwordInput.locator('xpath=ancestor::form[1]');
+      const emailInput = form.locator('input[type="text"], input[type="email"]').first();
       await emailInput.fill(account.email);
-      await this.page.getByPlaceholder('Hasło').fill(account.password);
-      await this.page.getByRole('button', { name: 'Zaloguj się' }).last().click();
+      await passwordInput.fill(account.password);
+      await form.locator('button[type="submit"]').click();
       // Balance renders as "€ 100.00" (EUR) or a "zł"-suffixed amount
       // (PLN) in the header once login completes — confirmed live for
       // EUR 2026-09-08; PLN's exact formatting NOT independently
@@ -104,20 +138,71 @@ export class SpinolocoPage {
 
   async goToSlots(): Promise<void> {
     await step('Open the Slots (Casino) lobby', async () => {
-      await this.page.goto('/pl/slots');
+      const locale = await this.getCurrentLocale();
+      await this.page.goto(`/${locale}/slots`);
       await this.page.waitForLoadState('domcontentloaded');
     });
   }
 
   async goToLiveCasino(): Promise<void> {
     await step('Open the Live Casino lobby', async () => {
-      await this.page.goto('/pl/live-games');
+      const locale = await this.getCurrentLocale();
+      await this.page.goto(`/${locale}/live-games`);
       await this.page.waitForLoadState('domcontentloaded');
     });
   }
 
-  private get loadMoreButton(): Locator {
-    return this.page.getByText('Wczytaj więcej', { exact: true });
+  private static readonly LOAD_MORE_MARK = 'data-spinoloco-load-more';
+
+  /**
+   * The "Load more" button, found structurally rather than by its
+   * (locale-dependent) label: walks up from the "42 / 4371"-style
+   * progress counter (that digit/slash pattern is the same in every
+   * locale) looking for a nearby `<button>`, tags it with a temp
+   * attribute, and returns a Locator for that. Falls back to the
+   * confirmed Polish/Italian/English labels if no counter is found (e.g.
+   * a locale whose counter format differs) — belt-and-suspenders, not the
+   * primary mechanism.
+   *
+   * Checks for an ALREADY-marked element first (a cheap `querySelector`)
+   * before re-running the expensive full-body `TreeWalker` scan —
+   * confirmed live 2026-09-08 that re-scanning the ENTIRE page on every
+   * single click (this method used to run unconditionally each
+   * iteration) is O(catalog size) per call, and with the catalog growing
+   * every batch, the WHOLE pagination loop was effectively O(n²): a
+   * 20-minute test timeout hit mid-way through Slots alone. The mark
+   * persists across re-renders in practice (confirmed live), so this
+   * usually only pays the full scan cost ONCE per page, not once per
+   * click.
+   */
+  private async findLoadMoreButton(): Promise<Locator> {
+    const mark = SpinolocoPage.LOAD_MORE_MARK;
+    const alreadyMarked = this.page.locator(`[${mark}]`).first();
+    if (await alreadyMarked.isVisible({ timeout: 300 }).catch(() => false)) return alreadyMarked;
+
+    const found = await this.page.evaluate((m) => {
+      document.querySelectorAll(`[${m}]`).forEach((el) => el.removeAttribute(m));
+      const counterRe = /^\s*\d+\s*\/\s*\d+\s*$/;
+      const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+      let node: Node | null;
+      while ((node = walker.nextNode())) {
+        const text = node.textContent?.trim() ?? '';
+        if (!counterRe.test(text)) continue;
+        let container: Element | null = node.parentElement;
+        for (let depth = 0; depth < 5 && container; depth++) {
+          const candidates = Array.from(container.querySelectorAll('button, [role="button"]'));
+          const btn = candidates.find((b) => !(b.textContent ?? '').includes(text));
+          if (btn) {
+            btn.setAttribute(m, 'true');
+            return true;
+          }
+          container = container.parentElement;
+        }
+      }
+      return false;
+    }, mark);
+    if (found) return this.page.locator(`[${mark}]`).first();
+    return this.page.getByText(/Wczytaj więcej|Visualizza tutto|Load more/i).first();
   }
 
   /**
@@ -131,13 +216,15 @@ export class SpinolocoPage {
   async loadMoreUntilAll(maxClicks = 250): Promise<{ clicks: number; cappedOut: boolean }> {
     return step('Load the full game catalog for this page', async () => {
       let clicks = 0;
+      let button = await this.findLoadMoreButton();
       while (clicks < maxClicks) {
-        if (!(await this.loadMoreButton.isVisible({ timeout: 1_000 }).catch(() => false))) break;
-        await this.loadMoreButton.click();
+        if (!(await button.isVisible({ timeout: 1_000 }).catch(() => false))) break;
+        await button.click().catch(() => {});
         clicks++;
         await this.page.waitForTimeout(300);
+        button = await this.findLoadMoreButton(); // the DOM/tag re-renders each batch
       }
-      const cappedOut = clicks >= maxClicks && (await this.loadMoreButton.isVisible().catch(() => false));
+      const cappedOut = clicks >= maxClicks && (await button.isVisible().catch(() => false));
       return { clicks, cappedOut };
     });
   }
@@ -165,7 +252,7 @@ export class SpinolocoPage {
    * name+provider — a game can legitimately appear more than once across
    * "Load more" batches if the underlying list re-sorts mid-scrape.
    */
-  async collectFullCatalog(maxClicks = 250): Promise<{ games: GameEntry[]; cappedOut: boolean }> {
+  async collectFullCatalog(maxClicks = defaultMaxLoadMoreClicks() ?? 250): Promise<{ games: GameEntry[]; cappedOut: boolean }> {
     const { cappedOut } = await this.loadMoreUntilAll(maxClicks);
     const raw = await this.collectGameCards();
     const seen = new Map<string, GameEntry>();
@@ -219,35 +306,54 @@ export class SpinolocoPage {
   }
 
   /**
-   * Discovers every "<SECTION HEADING> / Zobacz wszystkie" link on the
-   * CURRENT page (confirmed live on `/pl/live-games`: "NAJLEPSZE GRY" and
-   * "RULETKA" sections, each followed by its own "Zobacz wszystkie" link
-   * to that category's dedicated listing) and returns each section's
-   * label + the URL its link resolves to. Discovery-driven — scales to
-   * however many sections a page actually has, no hardcoded category
-   * list.
+   * Discovers every "<SECTION HEADING> / See all" link on the CURRENT
+   * page (confirmed live: "Zobacz wszystkie" in Polish, "Visualizza
+   * tutto" in Italian — same UI element, different label per locale, see
+   * this class's own comment on locale handling) and returns each
+   * section's label + the URL its link resolves to. Discovery-driven —
+   * scales to however many sections a page actually has, no hardcoded
+   * category list.
+   *
+   * Navigates by CLICKING each link and reading back `page.url()`, not by
+   * reading a static `href` — confirmed live this brand's "See all"
+   * controls aren't guaranteed to be real `<a href>` elements (could be a
+   * JS-routed button, same as most of this SPA), so a static href read
+   * can silently be empty/wrong. Restores the original page after each,
+   * since clicking navigates away.
    */
   async getCategorySections(): Promise<Array<{ label: string; url: string }>> {
     return step('Discover category sections on this page', async () => {
-      const seeAllLinks = this.page.getByText('Zobacz wszystkie', { exact: true });
+      const startUrl = this.page.url();
+      const seeAllLinks = this.page.getByText(/Zobacz wszystkie|Visualizza tutto|See all|View all/i);
       const count = await seeAllLinks.count();
       const sections: Array<{ label: string; url: string }> = [];
       for (let i = 0; i < count; i++) {
-        const link = seeAllLinks.nth(i);
+        const link = this.page.getByText(/Zobacz wszystkie|Visualizza tutto|See all|View all/i).nth(i);
         // The section's own heading is the nearest preceding heading-like
         // sibling in the same row — read via a small DOM walk rather than
         // a fixed selector, since the row's exact tag isn't confirmed.
-        const label = await link.evaluate((el) => {
-          let node: Element | null = el.parentElement;
-          for (let depth = 0; depth < 4 && node; depth++) {
-            const heading = node.querySelector('h1, h2, h3, [class*="title" i], [class*="heading" i]');
-            if (heading?.textContent?.trim()) return heading.textContent.trim();
-            node = node.parentElement;
-          }
-          return '';
-        });
-        const href = await link.evaluate((el) => el.closest('a')?.getAttribute('href') ?? '');
-        if (label) sections.push({ label, url: href });
+        const label = await link
+          .evaluate((el) => {
+            let node: Element | null = el.parentElement;
+            for (let depth = 0; depth < 4 && node; depth++) {
+              const heading = node.querySelector('h1, h2, h3, [class*="title" i], [class*="heading" i]');
+              if (heading?.textContent?.trim()) return heading.textContent.trim();
+              node = node.parentElement;
+            }
+            return '';
+          })
+          .catch(() => '');
+        if (!label) continue;
+        try {
+          await link.click({ timeout: 5_000 });
+          await this.page.waitForURL((u) => u.toString() !== startUrl, { timeout: 8_000 }).catch(() => {});
+          sections.push({ label, url: this.page.url() });
+        } catch {
+          // one section's link misbehaving shouldn't sink discovery of the rest
+        } finally {
+          await this.page.goto(startUrl);
+          await this.page.waitForLoadState('domcontentloaded');
+        }
       }
       return sections;
     });
@@ -338,6 +444,25 @@ export class SpinolocoPage {
       if (consoleErrors.length > 0) {
         await attachment(`Console errors — ${name}`, consoleErrors.slice(0, 20).join('\n'), ContentType.TEXT);
       }
+    });
+  }
+
+  /**
+   * Lightweight per-game evidence shot for the launch check — viewport
+   * only (no `fullPage` scroll-and-stitch: a game view is one fixed
+   * screen, not a long page, and stitching a cross-origin iframe's canvas
+   * mid-scroll is exactly the kind of thing that produced Wildies'
+   * garbled/overlapping screenshots). No automated check can tell
+   * whether the game's own Spin/Play button rendered — that control
+   * lives inside an opaque cross-origin canvas with no accessible DOM —
+   * so this is the human-verifiable record for that (2026-09-08
+   * decision): a human scans this screenshot per game to catch a missing
+   * button that "iframe loaded, no error text" alone wouldn't.
+   */
+  async attachGameScreenshot(name: string): Promise<void> {
+    await step(`Screenshot: ${name}`, async () => {
+      const buffer = await this.page.screenshot({ fullPage: false, timeout: 15_000 }).catch(() => null);
+      if (buffer) await attachment(name, buffer, ContentType.PNG);
     });
   }
 }
