@@ -839,7 +839,7 @@ test.describe('beta.wildies.com — translation coverage', () => {
             await wildiesPage.open(locale.path);
             await wildiesPage.login(SEED_ACCOUNT!.email, SEED_ACCOUNT!.password);
             const modalFlagged = wildiesPage.takePendingModalFindings();
-            await wildiesPage.openSportsbookMyBets();
+            await wildiesPage.openSportsbookMyBets(locale.path);
             const frameFlagged = await wildiesPage.scanFrameForUntranslatedText(wildiesPage.sportsbookFrame);
             if (locale.code !== 'en') {
               frameFlagged.push(

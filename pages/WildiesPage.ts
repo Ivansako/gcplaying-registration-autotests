@@ -401,13 +401,34 @@ export class WildiesPage {
    * Opens the sportsbook widget's own "My Bets" tab — the translated bet
    * history this suite checks after `placeMinimumSportsbookBet()` has
    * seeded one. Navigation-only, no new bet placed.
+   *
+   * `localeSegment` — confirmed live 2026-09-08 this was ALWAYS hardcoded
+   * to bare `/sport` (English, per `visitPage()`'s own convention: no
+   * prefix = English) regardless of which locale's test called it — the
+   * ENTIRE page, not just the widget, loaded in English every single
+   * time. Every "Sportsbook My Bets — {locale}" English-fallback finding
+   * to date was checking the English page under a non-English test name,
+   * not a real per-locale translation gap. `visitPage('/sport', ...)`
+   * (used by the separate "Sportsbook Lobby" check) already did this
+   * correctly — this method just never matched it.
    */
-  async openSportsbookMyBets(): Promise<void> {
+  async openSportsbookMyBets(localeSegment = ''): Promise<void> {
     await step('Open the sportsbook "My Bets" tab', async () => {
-      await this.page.goto('/sport');
+      // Same convention as `visitPage()`: no prefix for English, `/{code}`
+      // for everything else.
+      await this.page.goto(localeSegment ? `/${localeSegment}/sport` : '/sport');
       await this.page.waitForTimeout(8_000);
       const frame = this.page.frameLocator('iframe[src*="88wplay"]');
-      const myBetsTab = frame.locator('.betslip_fe_ModernTab_modernTab__title', { hasText: 'My Bets' });
+      // By position, NOT by English text — confirmed live 2026-09-08 both
+      // tab labels are genuinely translated per locale (German: "WETTSCHEIN"
+      // / "MEINE WETTEN"), so the previous `getByText('Bet Slip', ...)` /
+      // `hasText: 'My Bets'` selectors only ever matched on the (buggy,
+      // always-English) navigation above — on a correctly-localized page
+      // they'd never find the tab at all. Order is fixed: index 0 is
+      // always "Bet Slip", index 1 is always "My Bets".
+      const tabs = frame.locator('.betslip_fe_ModernTab_modernTab__title');
+      const betSlipTab = tabs.nth(0);
+      const myBetsTab = tabs.nth(1);
       // Always click "Bet Slip" first, unconditionally, on both
       // viewports: on mobile this taps the floating toggle that expands
       // the panel out from behind the site's own fixed bottom nav
@@ -416,7 +437,7 @@ export class WildiesPage {
       // to the real, topmost element at that pixel, the bottom nav's
       // "Casino" link, navigating away instead); on desktop it's simply
       // the already-active tab label, a harmless no-op re-select.
-      await frame.getByText('Bet Slip', { exact: true }).first().click();
+      await betSlipTab.click();
       await this.page.waitForTimeout(2_000);
       await myBetsTab.click();
       await this.page.waitForTimeout(3_000);
