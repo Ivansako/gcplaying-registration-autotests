@@ -115,8 +115,20 @@ test.describe('spinoloco7545.com — Game Launch', () => {
           // already-paginated state for free — only pay for a full
           // re-navigate + re-paginate on the games where it demonstrably
           // did NOT land back on this lobby.
-          await laneSpinoloco[goTo]();
-          await laneSpinoloco.loadMoreUntilAll();
+          //
+          // This initial navigation is ALSO try/caught (confirmed live
+          // 2026-09-09: it hit the exact same real 30s navigation
+          // timeout the per-game recovery nav already guards against,
+          // and being outside any try/catch here still crashed the
+          // whole test) — if it fails, every game in this lobby group is
+          // recorded as failed rather than the lane just dying.
+          try {
+            await laneSpinoloco[goTo]();
+            await laneSpinoloco.loadMoreUntilAll();
+          } catch (err) {
+            for (const game of games) failures.push({ ...game, reason: `Could not open the lobby: ${(err as Error).message}` });
+            continue;
+          }
           for (const game of games) {
             // The whole per-game body is try/caught — confirmed live
             // 2026-09-09 that one lane's `page.goto()` hitting a real
