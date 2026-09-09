@@ -114,11 +114,23 @@ test.describe('spinoloco7545.com — Game Launch', () => {
             // breaking every subsequent card lookup in the lane (2 of 3
             // games in one run failed only because of this, not because
             // the games themselves were broken).
-            await laneSpinoloco[goTo]();
-            await laneSpinoloco.loadMoreUntilAll();
-            const result = await laneSpinoloco.launchGameAndCheck(game);
-            if (!result.ok) failures.push({ ...game, reason: result.reason });
-            await laneSpinoloco.attachGameScreenshot(`${game.provider} — ${game.name}${result.ok ? '' : ' (FAILED)'}`);
+            //
+            // The whole per-game body is try/caught — confirmed live
+            // 2026-09-09 that one lane's `page.goto()` hitting a real
+            // 30s navigation timeout (10 concurrent tabs all hitting the
+            // site at once) threw all the way out of this lane's loop,
+            // which `Promise.all` then propagated to EVERY other lane —
+            // one flaky navigation in a 60-game run destroyed the other
+            // 59 games' results instead of just failing its own game.
+            try {
+              await laneSpinoloco[goTo]();
+              await laneSpinoloco.loadMoreUntilAll();
+              const result = await laneSpinoloco.launchGameAndCheck(game);
+              if (!result.ok) failures.push({ ...game, reason: result.reason });
+              await laneSpinoloco.attachGameScreenshot(`${game.provider} — ${game.name}${result.ok ? '' : ' (FAILED)'}`);
+            } catch (err) {
+              failures.push({ ...game, reason: `Unhandled error: ${(err as Error).message}` });
+            }
           }
         }
       }
