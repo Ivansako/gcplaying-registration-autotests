@@ -105,16 +105,19 @@ test.describe('spinoloco7545.com — Game Launch', () => {
           ['goToLiveCasino', laneGames.filter((g) => origin.get(gameKey(g)) === 'live')],
         ] as const) {
           if (games.length === 0) continue;
+          // Full navigate + paginate ONCE per lobby per lane, not once
+          // per game — confirmed live 2026-09-09 that re-paginating from
+          // scratch before EVERY game (the previous fix for goBack()'s
+          // unreliability) made a 60-game run take 51.6 minutes (459
+          // "Load more" clicks for 60 games), which doesn't scale to the
+          // full ~4300+ catalog. `launchGameAndCheck()`'s internal
+          // `goBack()` is cheap AND, when it works, preserves the SPA's
+          // already-paginated state for free — only pay for a full
+          // re-navigate + re-paginate on the games where it demonstrably
+          // did NOT land back on this lobby.
+          await laneSpinoloco[goTo]();
+          await laneSpinoloco.loadMoreUntilAll();
           for (const game of games) {
-            // Explicitly re-open the lobby before EVERY game, rather
-            // than trusting `launchGameAndCheck()`'s internal
-            // `page.goBack()` to land back on it — confirmed live
-            // 2026-09-09 that back navigation can land on the site's
-            // HOMEPAGE instead of `/it/slots`/`/it/live-games`, silently
-            // breaking every subsequent card lookup in the lane (2 of 3
-            // games in one run failed only because of this, not because
-            // the games themselves were broken).
-            //
             // The whole per-game body is try/caught — confirmed live
             // 2026-09-09 that one lane's `page.goto()` hitting a real
             // 30s navigation timeout (10 concurrent tabs all hitting the
@@ -123,8 +126,11 @@ test.describe('spinoloco7545.com — Game Launch', () => {
             // one flaky navigation in a 60-game run destroyed the other
             // 59 games' results instead of just failing its own game.
             try {
-              await laneSpinoloco[goTo]();
-              await laneSpinoloco.loadMoreUntilAll();
+              const onLobby = await laneSpinoloco.isOnLobby(goTo === 'goToSlots' ? 'slots' : 'live');
+              if (!onLobby) {
+                await laneSpinoloco[goTo]();
+                await laneSpinoloco.loadMoreUntilAll();
+              }
               const result = await laneSpinoloco.launchGameAndCheck(game);
               if (!result.ok) failures.push({ ...game, reason: result.reason });
               await laneSpinoloco.attachGameScreenshot(`${game.provider} — ${game.name}${result.ok ? '' : ' (FAILED)'}`);

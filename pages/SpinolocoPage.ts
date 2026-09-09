@@ -155,6 +155,20 @@ export class SpinolocoPage {
   }
 
   /**
+   * Cheap check for whether the page is CURRENTLY on the Slots/Live
+   * Casino lobby URL — used to decide whether `launchGameAndCheck()`'s
+   * internal `goBack()` actually landed back where a lane expects (in
+   * which case the SPA's own pagination state is presumably preserved,
+   * no expensive re-navigate + re-paginate needed) or genuinely went
+   * somewhere else (the site's homepage, confirmed live 2026-09-09 as a
+   * real failure mode), which DOES need the expensive recovery.
+   */
+  isOnLobby(kind: 'slots' | 'live'): boolean {
+    const path = kind === 'slots' ? '/slots' : '/live-games';
+    return this.page.url().includes(path);
+  }
+
+  /**
    * Confirmed live 2026-09-09: `domcontentloaded` fires before this SPA
    * has hydrated/rendered its game grid — a `loadMoreUntilAll()` call
    * immediately after a fresh navigation could find no "Load more"
