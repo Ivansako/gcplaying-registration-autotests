@@ -235,7 +235,7 @@ export class SpinolocoPage {
       // real time, unlike an Allure attachment (only flushed at test
       // end) — cheap enough to leave in permanently.
       const startedAt = Date.now();
-      let cardCountBefore = (await this.collectGameCards().catch(() => [])).length;
+      let cardCountBefore = await this.countGameCards().catch(() => 0);
       while (clicks < maxClicks) {
         const button = await this.findLoadMoreButton();
         if (!(await button.isVisible({ timeout: 1_000 }).catch(() => false))) break;
@@ -243,14 +243,14 @@ export class SpinolocoPage {
         await button.click().catch(() => {});
         clicks++;
         await this.page.waitForTimeout(300);
-        let cardCountAfter = (await this.collectGameCards().catch(() => [])).length;
+        let cardCountAfter = await this.countGameCards().catch(() => 0);
         if (cardCountAfter <= cardCountBefore) {
           // Give one slow batch the benefit of the doubt — confirmed live
           // some clicks' new cards render well after the initial 300ms
           // settle, and concluding "done" one batch too early would
           // silently truncate a genuinely bigger catalog.
           await this.page.waitForTimeout(1_500);
-          cardCountAfter = (await this.collectGameCards().catch(() => [])).length;
+          cardCountAfter = await this.countGameCards().catch(() => 0);
         }
         console.log(
           `[spinoloco] loadMore click #${clicks}: ${cardCountBefore} -> ${cardCountAfter} cards, ` +
@@ -262,6 +262,21 @@ export class SpinolocoPage {
       const cappedOut = clicks >= maxClicks && (await (await this.findLoadMoreButton()).isVisible().catch(() => false));
       return { clicks, cappedOut };
     });
+  }
+
+  /**
+   * Cheap card count — just `querySelectorAll(...).length`, no per-card
+   * mapping. Confirmed live 2026-09-09: calling the full
+   * `collectGameCards()` (maps every card's img src + both name/provider
+   * paragraphs) after EVERY "Load more" click made each click's own cost
+   * grow with the catalog — by ~2600 cards, a single click's bookkeeping
+   * alone took 10-17s, `loadMoreUntilAll()`'s real bottleneck turned out
+   * to be its OWN diagnostic counting, not the site. This is O(cards) too,
+   * but with no per-card object allocation/DOM sub-queries, it's a small
+   * fraction of the cost.
+   */
+  private async countGameCards(): Promise<number> {
+    return this.page.evaluate(() => document.querySelectorAll('[data-card="container"]').length);
   }
 
   /** Reads every game card currently rendered in the DOM. */
