@@ -141,6 +141,7 @@ export class SpinolocoPage {
       const locale = await this.getCurrentLocale();
       await this.page.goto(`/${locale}/slots`);
       await this.page.waitForLoadState('domcontentloaded');
+      await this.settleAfterNavigation();
     });
   }
 
@@ -149,7 +150,23 @@ export class SpinolocoPage {
       const locale = await this.getCurrentLocale();
       await this.page.goto(`/${locale}/live-games`);
       await this.page.waitForLoadState('domcontentloaded');
+      await this.settleAfterNavigation();
     });
+  }
+
+  /**
+   * Confirmed live 2026-09-09: `domcontentloaded` fires before this SPA
+   * has hydrated/rendered its game grid — a `loadMoreUntilAll()` call
+   * immediately after a fresh navigation could find no "Load more"
+   * button yet (not because the catalog is small, but because the grid
+   * hasn't rendered at all) and silently conclude "catalog fully loaded"
+   * after 42 cards instead of the real ~4371+, in ONE observed run. This
+   * doesn't wait for full hydration (no reliable signal for that found),
+   * just gives the grid a beat to render before the pagination loop's
+   * first button check.
+   */
+  private async settleAfterNavigation(): Promise<void> {
+    await this.page.locator('[data-card="container"]').first().waitFor({ state: 'attached', timeout: 8_000 }).catch(() => {});
   }
 
   private static readonly LOAD_MORE_MARK = 'data-spinoloco-load-more';
