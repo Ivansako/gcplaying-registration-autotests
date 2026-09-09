@@ -206,17 +206,26 @@ export class SpinolocoPage {
   }
 
   /**
-   * Clicks "Load more" until it disappears (the whole catalog for this
-   * page is rendered) or `maxClicks` is hit, whichever comes first. A cap
-   * exists so a single check can't run forever if the button's own
-   * disappearance signal ever breaks — the caller decides whether hitting
-   * the cap is worth flagging (it means this run didn't see the FULL
-   * catalog for this page).
+   * Clicks "Load more" until the visible card count stops growing (the
+   * whole catalog for this page is rendered) or `maxClicks` is hit,
+   * whichever comes first.
+   *
+   * Confirmed live 2026-09-08: "is a load-more-shaped button still
+   * visible" is NOT a reliable stop condition on its own. On a page with
+   * only 6 games total (a small Live Casino category — e.g. "Lobbies"),
+   * the counter correctly read "6 / 6" (nothing left to load) but
+   * `findLoadMoreButton()`'s text-based FALLBACK still matched an
+   * UNRELATED "Visualizza tutto"/"See all" link belonging to a different
+   * section further down the same page, so the loop kept "finding a
+   * button" and clicking it — uselessly, ~15s per click, all the way to
+   * `maxClicks` — since that click never actually added a card. Card
+   * count is the one signal that directly measures the thing this loop
+   * actually cares about (did new games appear), immune to which
+   * unrelated element the button-finder happened to match.
    */
-  async loadMoreUntilAll(maxClicks = 250): Promise<{ clicks: number; cappedOut: boolean }> {
+  async loadMoreUntilAll(maxClicks = defaultMaxLoadMoreClicks() ?? 250): Promise<{ clicks: number; cappedOut: boolean }> {
     return step('Load the full game catalog for this page', async () => {
       let clicks = 0;
-      let button = await this.findLoadMoreButton();
       // Diagnostic-only logging (2026-09-08, live debugging session):
       // this loop's real-world runtime turned out to vary wildly (a few
       // seconds to 30+ minutes stuck) with no visibility into WHERE the
@@ -228,20 +237,29 @@ export class SpinolocoPage {
       const startedAt = Date.now();
       let cardCountBefore = (await this.collectGameCards().catch(() => [])).length;
       while (clicks < maxClicks) {
+        const button = await this.findLoadMoreButton();
         if (!(await button.isVisible({ timeout: 1_000 }).catch(() => false))) break;
         const clickStartedAt = Date.now();
         await button.click().catch(() => {});
         clicks++;
         await this.page.waitForTimeout(300);
-        button = await this.findLoadMoreButton(); // the DOM/tag re-renders each batch
-        const cardCountAfter = (await this.collectGameCards().catch(() => [])).length;
+        let cardCountAfter = (await this.collectGameCards().catch(() => [])).length;
+        if (cardCountAfter <= cardCountBefore) {
+          // Give one slow batch the benefit of the doubt — confirmed live
+          // some clicks' new cards render well after the initial 300ms
+          // settle, and concluding "done" one batch too early would
+          // silently truncate a genuinely bigger catalog.
+          await this.page.waitForTimeout(1_500);
+          cardCountAfter = (await this.collectGameCards().catch(() => [])).length;
+        }
         console.log(
           `[spinoloco] loadMore click #${clicks}: ${cardCountBefore} -> ${cardCountAfter} cards, ` +
             `${Date.now() - clickStartedAt}ms this click, ${Date.now() - startedAt}ms total`
         );
+        if (cardCountAfter <= cardCountBefore) break; // no growth even after the grace wait — done, or clicking the wrong element
         cardCountBefore = cardCountAfter;
       }
-      const cappedOut = clicks >= maxClicks && (await button.isVisible().catch(() => false));
+      const cappedOut = clicks >= maxClicks && (await (await this.findLoadMoreButton()).isVisible().catch(() => false));
       return { clicks, cappedOut };
     });
   }
