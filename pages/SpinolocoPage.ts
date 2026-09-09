@@ -425,7 +425,16 @@ export class SpinolocoPage {
         return { ok: false, reason: `Could not click the game card: ${(err as Error).message}` };
       }
 
-      const iframe = this.page.locator('iframe').first();
+      // Confirmed live 2026-09-09: a game page renders (at least) THREE
+      // `<iframe>`s — the real game engine (e.g.
+      // `wizmatech2.games.amusnet.io/...`), a LiveChat widget
+      // (`secure.livechatinc.com`), and one with an empty `src`. Plain
+      // `iframe.first()` was matching whichever of those happens to be
+      // first in DOM order — NOT necessarily the game — so this was
+      // waiting on the wrong element and reporting every launch as
+      // "never became visible" regardless of whether the actual game
+      // loaded fine. Scoped to a real, non-livechat `src` instead.
+      const iframe = this.page.locator('iframe[src]:not([src=""]):not([src*="livechatinc"])').first();
       const errorText = this.page.getByText(/błąd|error|failed|niedostępn|access denied|nie znaleziono|500|502|503/i);
       try {
         await Promise.race([
@@ -433,6 +442,31 @@ export class SpinolocoPage {
           errorText.first().waitFor({ state: 'visible', timeout: 30_000 }),
         ]);
       } catch {
+        // Diagnostic-only (2026-09-09 live debugging): dumps the real
+        // game iframe's own dimensions/attachment state at the moment
+        // this gives up, straight from the actual Playwright browser
+        // (not a proxy tool that can misrepresent a hidden/background
+        // pane's layout) — settles whether it's genuinely never
+        // attaching vs. attaching but staying zero-size.
+        const diag = await this.page
+          .evaluate(() => {
+            const el = document.querySelector('iframe[src]:not([src=""]):not([src*="livechatinc"])') as HTMLIFrameElement | null;
+            if (!el) return { found: false };
+            const rect = el.getBoundingClientRect();
+            return {
+              found: true,
+              src: el.src.slice(0, 80),
+              offsetW: el.offsetWidth,
+              offsetH: el.offsetHeight,
+              rectW: rect.width,
+              rectH: rect.height,
+              display: getComputedStyle(el).display,
+              bodyW: document.body.offsetWidth,
+              bodyH: document.body.offsetHeight,
+            };
+          })
+          .catch((e) => ({ found: false, error: String(e) }));
+        console.log(`[spinoloco] launch timeout diagnostic for ${game.name}: ${JSON.stringify(diag)}`);
         await this.page.goBack().catch(() => {});
         return { ok: false, reason: 'Neither the game iframe nor an error message appeared within 30s' };
       }

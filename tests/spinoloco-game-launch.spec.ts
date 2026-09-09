@@ -105,19 +105,20 @@ test.describe('spinoloco7545.com — Game Launch', () => {
           ['goToLiveCasino', laneGames.filter((g) => origin.get(gameKey(g)) === 'live')],
         ] as const) {
           if (games.length === 0) continue;
-          await laneSpinoloco[goTo]();
-          await laneSpinoloco.loadMoreUntilAll();
           for (const game of games) {
+            // Explicitly re-open the lobby before EVERY game, rather
+            // than trusting `launchGameAndCheck()`'s internal
+            // `page.goBack()` to land back on it — confirmed live
+            // 2026-09-09 that back navigation can land on the site's
+            // HOMEPAGE instead of `/it/slots`/`/it/live-games`, silently
+            // breaking every subsequent card lookup in the lane (2 of 3
+            // games in one run failed only because of this, not because
+            // the games themselves were broken).
+            await laneSpinoloco[goTo]();
+            await laneSpinoloco.loadMoreUntilAll();
             const result = await laneSpinoloco.launchGameAndCheck(game);
             if (!result.ok) failures.push({ ...game, reason: result.reason });
             await laneSpinoloco.attachGameScreenshot(`${game.provider} — ${game.name}${result.ok ? '' : ' (FAILED)'}`);
-            // Whether `page.goBack()` after a launch preserves "Load
-            // more" pagination state or resets to the first 42 wasn't
-            // confirmed live (see SpinolocoPage's class comment) —
-            // `loadMoreUntilAll()` is cheap (near-instant) when the
-            // button's already gone, so calling it again before every
-            // launch is correct either way.
-            await laneSpinoloco.loadMoreUntilAll();
           }
         }
       }
