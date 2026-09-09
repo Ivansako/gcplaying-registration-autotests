@@ -1,0 +1,34 @@
+name: CF Access probe (beta.wildies.com)
+
+# Fast, Playwright-free diagnostic: hits beta.wildies.com repeatedly from a
+# GitHub Actions runner with the same CF-Access service token the real
+# suite uses, to check whether the gate blocks intermittently from this
+# IP/ASN rather than waiting hours for the full wildies-i18n suite to find
+# out the same thing indirectly. Not part of the regular test suite — run
+# manually when the Wildies gate is acting up.
+on:
+  workflow_dispatch:
+    inputs:
+      requests:
+        description: 'How many requests to send'
+        type: number
+        default: 30
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Hit beta.wildies.com repeatedly
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          for i in $(seq 1 ${{ inputs.requests }}); do
+            code=$(curl -s -o /tmp/body.html -w "%{http_code}" \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              https://beta.wildies.com/)
+            title=$(grep -oP '(?<=<title>).*?(?=</title>)' /tmp/body.html | head -1)
+            echo "Request $i: HTTP $code — title: ${title:-<none found>}"
+            sleep 1
+          done
