@@ -67,9 +67,20 @@ export function isUmbrellaCategory(sectionGameCount: number, fullCatalogSize: nu
  * catalog is fully covered over `Math.ceil(catalogSize / shardSize)` days.
  * Deliberately stateless (no cursor file to persist across CI runs,
  * nothing to keep in sync) — the date IS the state.
+ *
+ * Overridable via `SPINOLOCO_SHARD_INDEX` (0-based) — lets a person pick
+ * an EXACT slice directly, e.g. to deliberately advance through several
+ * shards in one sitting (the date-based default only advances once every
+ * 24h, even across multiple manual runs on the same day) or to re-run a
+ * specific slice that had a finding. `selectShard()` clamps it into
+ * range with `% shardCount` rather than erroring on an out-of-range
+ * value, so the same override works regardless of that day's actual
+ * `shardCount` (which depends on the live catalog size).
  */
 export function shardIndexForToday(shardCount: number): number {
   if (shardCount <= 0) return 0;
+  const override = Number(process.env.SPINOLOCO_SHARD_INDEX);
+  if (Number.isInteger(override) && override >= 0) return override % shardCount;
   const dayNumber = Math.floor(Date.now() / 86_400_000);
   return dayNumber % shardCount;
 }

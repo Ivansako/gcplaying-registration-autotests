@@ -217,12 +217,29 @@ export class SpinolocoPage {
     return step('Load the full game catalog for this page', async () => {
       let clicks = 0;
       let button = await this.findLoadMoreButton();
+      // Diagnostic-only logging (2026-09-08, live debugging session):
+      // this loop's real-world runtime turned out to vary wildly (a few
+      // seconds to 30+ minutes stuck) with no visibility into WHERE the
+      // time was going until a run finished or hit its own timeout.
+      // Plain `console.log` from here (Node/test-process context, not
+      // `page.evaluate()`) streams to the Playwright reporter's stdout in
+      // real time, unlike an Allure attachment (only flushed at test
+      // end) — cheap enough to leave in permanently.
+      const startedAt = Date.now();
+      let cardCountBefore = (await this.collectGameCards().catch(() => [])).length;
       while (clicks < maxClicks) {
         if (!(await button.isVisible({ timeout: 1_000 }).catch(() => false))) break;
+        const clickStartedAt = Date.now();
         await button.click().catch(() => {});
         clicks++;
         await this.page.waitForTimeout(300);
         button = await this.findLoadMoreButton(); // the DOM/tag re-renders each batch
+        const cardCountAfter = (await this.collectGameCards().catch(() => [])).length;
+        console.log(
+          `[spinoloco] loadMore click #${clicks}: ${cardCountBefore} -> ${cardCountAfter} cards, ` +
+            `${Date.now() - clickStartedAt}ms this click, ${Date.now() - startedAt}ms total`
+        );
+        cardCountBefore = cardCountAfter;
       }
       const cappedOut = clicks >= maxClicks && (await button.isVisible().catch(() => false));
       return { clicks, cappedOut };
