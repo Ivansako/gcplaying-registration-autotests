@@ -419,10 +419,31 @@ export class SpinolocoPage {
         .locator('[data-card="container"]')
         .filter({ has: this.page.locator('[data-card="game-name"] p', { hasText: exactName }) })
         .first();
+      const startUrl = this.page.url();
+      // `force: true` — confirmed live 2026-09-09 that a plain click on
+      // the card container can silently do nothing (no error, no
+      // navigation): each card has its own `WizGameCard_overlay` layer
+      // (a hover/lock-icon reveal, confirmed present on every card in
+      // earlier DOM dumps) sitting on top, which a normal actionability
+      // check can end up targeting instead of the card underneath.
       try {
-        await card.click({ timeout: 8_000 });
+        await card.click({ timeout: 8_000, force: true });
       } catch (err) {
         return { ok: false, reason: `Could not click the game card: ${(err as Error).message}` };
+      }
+      // Confirmed live 2026-09-09: a click can land before the SPA has
+      // finished attaching this card's own handler (same hydration race
+      // `WildiesPage`'s login/menu clicks retry around) — the click
+      // itself doesn't throw, but the page silently never navigates to
+      // `/{locale}/game/real/{id}` at all. One retry if the URL hasn't
+      // moved after a short settle delay.
+      await this.page.waitForTimeout(1_000);
+      if (this.page.url() === startUrl) {
+        await card.click({ timeout: 8_000, force: true }).catch(() => {});
+        await this.page.waitForTimeout(1_000);
+        if (this.page.url() === startUrl) {
+          return { ok: false, reason: 'Clicked the card twice but the page never navigated to the game' };
+        }
       }
 
       // Confirmed live 2026-09-09: a game page renders (at least) THREE
