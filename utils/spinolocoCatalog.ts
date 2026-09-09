@@ -91,3 +91,36 @@ export function selectShard<T>(items: T[], shardSize: number): { shard: T[]; sha
   const start = shardIndex * shardSize;
   return { shard: items.slice(start, start + shardSize), shardIndex, shardCount };
 }
+
+/**
+ * Samples `perProvider` games from EACH provider, rotating which
+ * specific games by day (per user decision 2026-09-09, replacing a flat
+ * slice of the whole catalog): a straight `selectShard()` over the
+ * combined ~4300+ game catalog can spend an entire run's shard inside
+ * one or two providers' own listings, so a provider with a launch
+ * problem might not get checked for weeks. Real timing from this same
+ * day's runs (60 games / 10 lanes ≈ 39 min including the one-time
+ * catalog scrape) makes `perProvider` in the 1-3 range comfortably fit
+ * a single day even on a slow network, while every one of the ~67
+ * providers gets checked every run — this mirrors how large operators
+ * actually do it (sample broadly + rely on production error-rate
+ * monitoring for the long tail, not an exhaustive daily sweep of every
+ * title — see this session's own discussion), not an attempt to cover
+ * the full catalog in one run. Reuses `selectShard()` (and its
+ * `SPINOLOCO_SHARD_INDEX` override) PER PROVIDER, so each provider's own
+ * `perProvider`-sized slice rotates by day exactly like a single-shard
+ * catalog would.
+ */
+export function sampleGamesByProvider<T extends { provider: string }>(items: T[], perProvider: number): T[] {
+  const byProvider = new Map<string, T[]>();
+  for (const item of items) {
+    const list = byProvider.get(item.provider);
+    if (list) list.push(item);
+    else byProvider.set(item.provider, [item]);
+  }
+  const sample: T[] = [];
+  for (const providerGames of byProvider.values()) {
+    sample.push(...selectShard(providerGames, perProvider).shard);
+  }
+  return sample;
+}

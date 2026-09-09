@@ -2,7 +2,7 @@ import { test, expect } from '../utils/testWithIssueAnalysis';
 import { allure } from 'allure-playwright';
 import { attachment, ContentType } from 'allure-js-commons';
 import { SpinolocoPage } from '../pages/SpinolocoPage';
-import { GameEntry, gameKey, selectShard } from '../utils/spinolocoCatalog';
+import { GameEntry, gameKey, sampleGamesByProvider } from '../utils/spinolocoCatalog';
 import { recordIssue } from '../utils/issueTracker';
 
 /**
@@ -12,11 +12,19 @@ import { recordIssue } from '../utils/issueTracker';
  *
  * Mobile-only (2026-09-08 decision — see `utils/deviceViewports.ts`).
  *
- * Sharded by calendar day (see `spinolocoCatalog.ts`'s
- * `shardIndexForToday()`): the catalog is ~4371+ Slots games alone, and
- * literally launching every single one every run would take many hours.
- * Each run covers one day's slice; running the suite daily cycles through
- * the FULL catalog over `ceil(catalogSize / SHARD_SIZE)` days.
+ * Samples `GAMES_PER_PROVIDER` games from EACH of the ~67 providers,
+ * rotating which specific games by calendar day (2026-09-09 decision,
+ * replacing a flat slice of the whole ~4371+ game catalog — see
+ * `spinolocoCatalog.ts`'s `sampleGamesByProvider()`) — a flat shard could
+ * spend an entire run inside one or two providers' own listings, leaving
+ * a provider with a real launch problem unchecked for weeks. This
+ * mirrors how large operators actually monitor this (sample broadly +
+ * lean on production error-rate monitoring for the long tail, not an
+ * exhaustive daily sweep of every title this repo has no access to
+ * traffic data to replicate) and, per real timing from this same day
+ * (60 games / 10 lanes ≈ 39 minutes including the one-time catalog
+ * scrape), keeps a single run comfortably inside a working day even on
+ * a slow-network day, while every provider gets checked every run.
  *
  * Launches games CONCURRENTLY across several browser tabs within this one
  * test (2026-09-08 decision, after a first real CI run showed this check
@@ -37,7 +45,7 @@ import { recordIssue } from '../utils/issueTracker';
  * rendered (opaque canvas, no accessible DOM); a human scans the
  * screenshots to catch that specifically.
  */
-const SHARD_SIZE = Number(process.env.SPINOLOCO_SHARD_SIZE) || 200;
+const GAMES_PER_PROVIDER = Number(process.env.SPINOLOCO_GAMES_PER_PROVIDER) || 1;
 const CONCURRENCY = Number(process.env.SPINOLOCO_LAUNCH_CONCURRENCY) || 10;
 
 test.describe('spinoloco7545.com — Game Launch', () => {
@@ -50,17 +58,18 @@ test.describe('spinoloco7545.com — Game Launch', () => {
   });
 
   test(
-    "Launch check — today's shard of the catalog opens with no tech errors",
+    "Launch check — today's sample (per provider) opens with no tech errors",
     { tag: ['@provider-launch'] },
     async ({ page, context }) => {
       test.setTimeout(90 * 60_000);
       allure.severity('critical');
       allure.description(
-        `Launches today's shard of the full Slots + Live Casino catalog across ${CONCURRENCY} concurrent tabs and ` +
-          'confirms each game either reaches the third-party iframe (playable, or the "Press anywhere to start" ' +
-          'splash) or surfaces an explicit error — a game that does neither within 30s is flagged as a launch ' +
-          'failure. A screenshot is attached for every game so a human can confirm the Spin/Play button actually ' +
-          "rendered — that specific check can't be automated (opaque canvas, no accessible DOM)."
+        `Launches ${GAMES_PER_PROVIDER} game(s) from EACH of the ~67 providers (today's rotating sample, not the ` +
+          `full catalog) across ${CONCURRENCY} concurrent tabs and confirms each game either reaches the ` +
+          'third-party iframe (playable, or the "Press anywhere to start" splash) or surfaces an explicit error — ' +
+          'a game that does neither within 30s is flagged as a launch failure. A screenshot is attached for every ' +
+          "game so a human can confirm the Spin/Play button actually rendered — that specific check can't be " +
+          'automated (opaque canvas, no accessible DOM).'
       );
 
       const spinoloco = new SpinolocoPage(page);
@@ -85,8 +94,10 @@ test.describe('spinoloco7545.com — Game Launch', () => {
       }
       const fullCatalog = [...seen.values()];
 
-      const { shard, shardIndex, shardCount } = selectShard(fullCatalog, SHARD_SIZE);
-      allure.parameter('Shard', `${shardIndex + 1} / ${shardCount} (${shard.length} games)`);
+      const shard = sampleGamesByProvider(fullCatalog, GAMES_PER_PROVIDER);
+      const providerCount = new Set(fullCatalog.map((g) => g.provider)).size;
+      allure.parameter('Games per provider', String(GAMES_PER_PROVIDER));
+      allure.parameter('Sample size', `${shard.length} games across ${providerCount} providers`);
       allure.parameter('Full catalog size', String(fullCatalog.length));
       allure.parameter('Concurrency', String(CONCURRENCY));
 
@@ -166,7 +177,7 @@ test.describe('spinoloco7545.com — Game Launch', () => {
         recordIssue({
           where: 'Game launch failures',
           severity: 'High',
-          whatChecked: `${shard.length} games (shard ${shardIndex + 1}/${shardCount} of the full ${fullCatalog.length}-game catalog), ${CONCURRENCY} concurrent tabs.`,
+          whatChecked: `${shard.length} games (${GAMES_PER_PROVIDER} per provider, ${providerCount} providers, out of the full ${fullCatalog.length}-game catalog), ${CONCURRENCY} concurrent tabs.`,
           rootCause: `${failures.length} game(s) didn't reach a playable state / showed an error: ${failures
             .slice(0, 15)
             .map((g) => `${g.provider}/${g.name} (${g.reason})`)
@@ -176,7 +187,7 @@ test.describe('spinoloco7545.com — Game Launch', () => {
         });
       }
 
-      expect(shard.length, 'The catalog scrape found zero games for this shard — likely a selector/pagination break').toBeGreaterThan(0);
+      expect(shard.length, 'The catalog scrape found zero games for this sample — likely a selector/pagination break').toBeGreaterThan(0);
       expect(failures, 'Game(s) that failed to launch cleanly — see Description and the attached JSON for the full list').toEqual([]);
     }
   );
