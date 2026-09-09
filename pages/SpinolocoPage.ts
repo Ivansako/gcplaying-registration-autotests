@@ -438,8 +438,8 @@ export class SpinolocoPage {
       const errorText = this.page.getByText(/błąd|error|failed|niedostępn|access denied|nie znaleziono|500|502|503/i);
       try {
         await Promise.race([
-          iframe.waitFor({ state: 'visible', timeout: 30_000 }),
-          errorText.first().waitFor({ state: 'visible', timeout: 30_000 }),
+          iframe.waitFor({ state: 'visible', timeout: 45_000 }),
+          errorText.first().waitFor({ state: 'visible', timeout: 45_000 }),
         ]);
       } catch {
         // Diagnostic-only (2026-09-09 live debugging): dumps the real
@@ -451,10 +451,12 @@ export class SpinolocoPage {
         const diag = await this.page
           .evaluate(() => {
             const el = document.querySelector('iframe[src]:not([src=""]):not([src*="livechatinc"])') as HTMLIFrameElement | null;
-            if (!el) return { found: false };
+            const allIframes = Array.from(document.querySelectorAll('iframe')).map((f) => (f as HTMLIFrameElement).src.slice(0, 90));
+            if (!el) return { found: false, url: location.href, allIframes, title: document.title };
             const rect = el.getBoundingClientRect();
             return {
               found: true,
+              url: location.href,
               src: el.src.slice(0, 80),
               offsetW: el.offsetWidth,
               offsetH: el.offsetHeight,
@@ -468,7 +470,7 @@ export class SpinolocoPage {
           .catch((e) => ({ found: false, error: String(e) }));
         console.log(`[spinoloco] launch timeout diagnostic for ${game.name}: ${JSON.stringify(diag)}`);
         await this.page.goBack().catch(() => {});
-        return { ok: false, reason: 'Neither the game iframe nor an error message appeared within 30s' };
+        return { ok: false, reason: 'Neither the game iframe nor an error message appeared within 45s' };
       }
 
       const hasIframe = await iframe.isVisible().catch(() => false);
@@ -504,7 +506,7 @@ export class SpinolocoPage {
           document.head.appendChild(style);
         }, HIDE_STYLE_ID)
         .catch(() => {});
-      const buffer = await this.page.screenshot({ fullPage: true, timeout: 30_000 });
+      const buffer = await this.page.screenshot({ fullPage: true, timeout: 45_000 });
       await this.page
         .evaluate((id) => document.getElementById(id)?.remove(), HIDE_STYLE_ID)
         .catch(() => {});
