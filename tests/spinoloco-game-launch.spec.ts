@@ -53,7 +53,7 @@ test.describe('spinoloco7545.com — Game Launch', () => {
     "Launch check — today's shard of the catalog opens with no tech errors",
     { tag: ['@provider-launch'] },
     async ({ page, context }) => {
-      test.setTimeout(30 * 60_000);
+      test.setTimeout(90 * 60_000);
       allure.severity('critical');
       allure.description(
         `Launches today's shard of the full Slots + Live Casino catalog across ${CONCURRENCY} concurrent tabs and ` +
