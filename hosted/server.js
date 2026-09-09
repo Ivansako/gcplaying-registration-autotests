@@ -47,8 +47,39 @@ const ghHeaders = {
   'X-GitHub-Api-Version': '2022-11-28',
 };
 
-let currentRun = null; // { runId, suite, status, conclusion, htmlUrl, reportReady, statistic, dispatchedAt }
-const history = []; // most recent first, capped at MAX_HISTORY
+// currentRun/history used to live only in this process's memory, so a
+// restart (crash, idle spin-down/wake, or a redeploy triggered by an
+// unrelated `git push`) silently wiped an in-flight run's progress and the
+// whole "Recent runs" table. Persisted to disk so a restart that keeps the
+// same filesystem picks the tracking back up; a full redeploy on a host
+// with an ephemeral filesystem still loses it (no host-independent store
+// here), but the /status adoption fallback below covers that case by
+// re-discovering the run directly from GitHub instead of trusting local
+// state.
+const STATE_FILE = path.join(os.tmpdir(), 'aloplay-qa-state.json');
+let pollInterval = null;
+
+function loadState() {
+  try {
+    const raw = fs.readFileSync(STATE_FILE, 'utf8');
+    const parsed = JSON.parse(raw);
+    return { currentRun: parsed.currentRun || null, history: parsed.history || [] };
+  } catch {
+    return { currentRun: null, history: [] };
+  }
+}
+
+function saveState() {
+  try {
+    fs.writeFileSync(STATE_FILE, JSON.stringify({ currentRun, history }));
+  } catch (err) {
+    console.error('Failed to persist state:', err.message);
+  }
+}
+
+const loaded = loadState();
+let currentRun = loaded.currentRun; // { runId, suite, status, conclusion, htmlUrl, reportReady, statistic, dispatchedAt }
+const history = loaded.history; // most recent first, capped at MAX_HISTORY
 
 // Suites whose positive tests register a real account on the live site.
 // GitHub's own sign-up endpoint rate-limits (429s) bursts of registrations
@@ -133,6 +164,7 @@ const CATEGORIES = [
 ];
 
 function suiteLabel(value) {
+  if (value === 'external') return 'Run started outside this page';
   const s = SUITES.find((x) => x.value === value);
   return s ? s.label : value;
 }
@@ -819,6 +851,61 @@ async function pollRun() {
     });
     history.length = Math.min(history.length, MAX_HISTORY);
   }
+
+  saveState();
+}
+
+// Shared by a fresh dispatch and by resuming/adopting a run found on disk
+// or on GitHub after a restart — avoids two overlapping poll loops for the
+// same run.
+function startPolling(runId) {
+  if (pollInterval) clearInterval(pollInterval);
+  pollInterval = setInterval(async () => {
+    await pollRun();
+    if (currentRun && currentRun.status === 'completed') {
+      clearInterval(pollInterval);
+      pollInterval = null;
+    }
+  }, 5000);
+}
+
+// If this process has no in-flight run tracked (fresh boot, or the disk
+// state was lost along with everything else on a full redeploy), ask
+// GitHub directly whether a workflow_dispatch run is currently in flight
+// and pick it up — this is what makes a run started elsewhere (another
+// process, a direct GitHub Actions dispatch, or one this instance lost
+// track of) show up here instead of being permanently invisible.
+async function adoptExternalRunIfAny() {
+  if (currentRun) return;
+  try {
+    const res = await ghFetch(
+      `${GH_API}/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=5`
+    );
+    const data = await res.json();
+    const inFlight = (data.workflow_runs || []).find((r) => r.status !== 'completed');
+    if (!inFlight) return;
+    currentRun = {
+      runId: inFlight.id,
+      suite: 'external',
+      status: inFlight.status,
+      conclusion: null,
+      htmlUrl: inFlight.html_url,
+      reportFetched: false,
+      reportReady: false,
+      dispatchedAt: inFlight.run_started_at || inFlight.created_at,
+    };
+    saveState();
+    startPolling(currentRun.runId);
+  } catch (err) {
+    console.error('Failed to check for an external in-flight run:', err.message);
+  }
+}
+
+// Resume tracking whatever was persisted before this process started.
+if (currentRun && currentRun.runId && currentRun.status !== 'completed') {
+  pollRun().then(() => {
+    if (currentRun && currentRun.status !== 'completed') startPolling(currentRun.runId);
+  });
 }
 
 function readSummaryStatistic() {
@@ -912,20 +999,23 @@ const server = http.createServer((req, res) => {
   }
 
   if (req.method === 'GET' && req.url === '/status') {
-    if (!currentRun) {
-      sendJson(res, 200, { runId: null });
-      return;
-    }
-    sendJson(res, 200, {
-      runId: currentRun.runId,
-      status: currentRun.status,
-      conclusion: currentRun.conclusion,
-      htmlUrl: currentRun.htmlUrl,
-      reportReady: !!currentRun.reportReady,
-      statistic: currentRun.statistic || null,
-      dispatchedAt: currentRun.dispatchedAt || null,
-      avgDurationMs: averageDurationMs(currentRun.suite),
-    });
+    (async () => {
+      if (!currentRun) await adoptExternalRunIfAny();
+      if (!currentRun) {
+        sendJson(res, 200, { runId: null });
+        return;
+      }
+      sendJson(res, 200, {
+        runId: currentRun.runId,
+        status: currentRun.status,
+        conclusion: currentRun.conclusion,
+        htmlUrl: currentRun.htmlUrl,
+        reportReady: !!currentRun.reportReady,
+        statistic: currentRun.statistic || null,
+        dispatchedAt: currentRun.dispatchedAt || null,
+        avgDurationMs: averageDurationMs(currentRun.suite),
+      });
+    })();
     return;
   }
 
@@ -998,12 +1088,9 @@ const server = http.createServer((req, res) => {
           reportReady: false,
           dispatchedAt: new Date().toISOString(),
         };
+        saveState();
         sendJson(res, 202, { started: true, runId });
-
-        const interval = setInterval(async () => {
-          await pollRun();
-          if (currentRun && currentRun.status === 'completed') clearInterval(interval);
-        }, 5000);
+        startPolling(runId);
       } catch (err) {
         sendJson(res, 500, { error: err.message });
       }
