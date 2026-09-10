@@ -693,10 +693,9 @@ export class FerraPlayPage {
   /**
    * Discovery-driven: opens every promotion's own "More info" panel (if
    * any), scans each for untranslated text, and closes it again. Mirrors
-   * `WildiesPage.verifyAllPromotionTerms()` — NOT yet confirmed live
-   * that "More info" opens an in-page panel vs. a modal vs. a separate
-   * page on FerraPlay specifically (only confirmed the buttons exist);
-   * verify the interaction the first time this actually runs.
+   * `WildiesPage.verifyAllPromotionTerms()` — confirmed live 2026-09-10
+   * (84/84 across all locales/viewports) that "More info" here opens a
+   * `[data-modal-overlay="true"]` panel, same as Wildies.
    */
   async verifyAllPromotionTerms(): Promise<{ found: number; opened: number; flagged: string[] }> {
     return step('Open every promotion\'s own Terms & Conditions', async () => {
@@ -725,6 +724,49 @@ export class FerraPlayPage {
       }
 
       return { found, opened, flagged: [...new Set(flagged)] };
+    });
+  }
+
+  /**
+   * Discovery-driven: opens every tournament's own detail page (if any)
+   * and scans each for untranslated text. Structurally DIFFERENT from
+   * `verifyAllPromotionTerms()` — confirmed live 2026-09-10 a
+   * tournament's "More info" is a real client-side navigation to
+   * `/tournaments/{id}` (a distinct URL, back-navigable), not a modal
+   * like Promotions. Re-visits the listing URL before each attempt
+   * rather than relying on browser back navigation, so one tournament's
+   * detail page misbehaving can't strand the loop somewhere unexpected.
+   */
+  async verifyAllTournamentDetails(localeSegment = ''): Promise<{ found: number; opened: number; flagged: string[] }> {
+    return step("Open and scan each tournament's own detail page", async () => {
+      const listingUrl = localeSegment ? `/${localeSegment}/tournaments` : '/tournaments';
+      const buttons = this.page.getByRole('button', { name: /more info/i });
+      await buttons.first().waitFor({ timeout: 8_000 }).catch(() => {});
+      const found = await buttons.count();
+
+      let opened = 0;
+      const flagged: string[] = [];
+      for (let i = 0; i < found; i++) {
+        try {
+          await this.page.goto(listingUrl);
+          await this.page.waitForLoadState('domcontentloaded');
+          const targetButtons = this.page.getByRole('button', { name: /more info/i });
+          await targetButtons.first().waitFor({ timeout: 8_000 }).catch(() => {});
+          const previousUrl = this.page.url();
+          await targetButtons.nth(i).click({ timeout: 5_000 });
+          await this.page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 8_000 });
+          opened++;
+          for (const f of await this.scanForUntranslatedText()) {
+            if (!flagged.includes(f)) flagged.push(f);
+          }
+        } catch {
+          // One tournament's detail page misbehaving shouldn't sink the
+          // rest — but if EVERY one fails (found > 0, opened stays 0),
+          // the caller surfaces that as a real finding instead of
+          // silently reporting "nothing to check".
+        }
+      }
+      return { found, opened, flagged };
     });
   }
 }

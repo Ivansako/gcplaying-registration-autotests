@@ -59,9 +59,6 @@ async function loginWithFallback(ferraplayPage: FerraPlayPage, account: Ferrapla
  *    check exists. Re-investigate if the widget ever starts rendering.
  *  - "Duplicate email" registration check uses a real account's email
  *    (`SEED_ACCOUNT`), same as Wildies.
- *  - Tournaments' own per-tournament detail-page discovery
- *    (`verifyAllTournamentDetails()` equivalent) — the listing page
- *    itself is checked as a generic page instead for now.
  *  - FerraPlay's own "Loyalty"/"Missions" nav items — distinct features
  *    from Wildies' Smartico "Match X" widget, not investigated at all.
  */
@@ -72,7 +69,6 @@ const ANONYMOUS_PAGES = [
   { path: '/live-casino', name: 'Live Casino' },
   { path: '/buy_bonus', name: 'Buy Bonus' },
   { path: '/sport', name: 'Sportsbook Lobby' },
-  { path: '/tournaments', name: 'Tournaments' },
   { path: '/faq', name: 'FAQ' },
   { path: '/contact-us', name: 'Contact Us' },
   { path: '/terms-and-conditions', name: 'Terms and Conditions' },
@@ -209,6 +205,38 @@ test.describe('ferraplay.com — translation coverage', () => {
                 opened > 0
                   ? `Details/Terms & Conditions of ${opened} individual promotion(s), each opened and scanned separately`
                   : 'No individual promotion "More info" buttons were found on this page',
+              ],
+              flagged
+            );
+          });
+        }
+      });
+
+      test.describe("Tournaments (including each tournament's own detail page)", () => {
+        for (const locale of EXISTING_LOCALES) {
+          test(`Tournament details — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
+            test.setTimeout(90_000);
+            allure.subSuite('Tournaments');
+            allure.severity('normal');
+
+            const ferraplayPage = new FerraPlayPage(page);
+            await ferraplayPage.visitPage('/tournaments', locale.path);
+            const { found, opened, flagged } = await ferraplayPage.verifyAllTournamentDetails(locale.path);
+            if (found > 0 && opened === 0) {
+              flagged.push(
+                `Found ${found} tournament "More info" button(s) but couldn't open any of them — the ` +
+                  'interaction may be broken (selector or markup change), not an honest absence of tournaments'
+              );
+            }
+            await ferraplayPage.captureScreenshot(`Tournament details — ${locale.label} (${viewportName})`, {
+              dismissModalFirst: true,
+            });
+            await ferraplayPage.verifyTranslation(
+              `Tournament details (${locale.label}, anonymous, ${viewportName})`,
+              [
+                opened > 0
+                  ? `Details page of ${opened} individual tournament(s), each opened and scanned separately`
+                  : 'No individual tournament "More info" buttons were found on this page',
               ],
               flagged
             );
