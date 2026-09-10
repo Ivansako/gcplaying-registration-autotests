@@ -45,13 +45,22 @@ async function loginWithFallback(ferraplayPage: FerraPlayPage, account: Ferrapla
  * same underlying platform. 3 real, funded (~€100 each) accounts
  * provided 2026-09-10, cleared for minimum-stake real spins.
  *
+ * Per-page English-fallback baselines (`PAGE_ENGLISH_BASELINES` below)
+ * added 2026-09-10, same discipline as Wildies': every phrase pulled
+ * from that page's own content and cross-checked against ALL 6
+ * non-English locales before being added. Found ONE real bug this way:
+ * Casino Lobby's "TOP GAMES" section header stays in English on
+ * Italiano/Português specifically (Ελληνικά/Español/Polski/Magyar all
+ * translate it correctly) — deliberately kept IN the baseline (not
+ * dropped) so this shows up as a real finding, same reasoning as
+ * Wildies keeping "About Us" in its own footer baseline once confirmed
+ * broken. Also found the Responsible Gambling policy's body text
+ * literally says "Shelbyspin" instead of "FerraPlay" — confirmed in
+ * ALL 7 locales including English itself (a copy-paste template bug in
+ * the base content, not a translation gap), checked separately via
+ * `BRAND_NAME_BUG_STRING` below since it isn't an English-fallback case.
+ *
  * NOT yet built (documented gaps, not silent coverage):
- *  - Per-page English-fallback baselines (`PAGE_ENGLISH_BASELINES` in
- *    the Wildies suite) — would need the same live per-locale diffing
- *    Wildies' baselines took multiple sessions to build safely; only
- *    the footer's global-phrase baseline exists so far (5 phrases,
- *    cross-checked against Italiano only — see `FerraPlayPage`'s own
- *    comment on `GLOBAL_ENGLISH_UI_PHRASES`).
  *  - Sportsbook — NOT covered at all. Confirmed live 2026-09-10 the
  *    `/sport` page renders a blank content area even logged in (no
  *    odds widget iframe, unlike Wildies' genuinely re-embedding
@@ -76,6 +85,44 @@ const ANONYMOUS_PAGES = [
   { path: '/aml-policy', name: 'AML-KYC Policy' },
   { path: '/responsible-gambling', name: 'Responsible Gambling' },
 ];
+
+/**
+ * Per-page known-English baselines for `scanForEnglishFallback()` —
+ * confirmed live 2026-09-10, each phrase pulled from that page's OWN
+ * content and cross-checked against all 6 non-English locales (see the
+ * class-level comment above for the one real bug this surfaced:
+ * Casino Lobby's "TOP GAMES", deliberately kept in the list).
+ *
+ * "Buy Bonus" and "Sportsbook Lobby" have no entry: Buy Bonus's own
+ * content is too thin/generic to build a safe baseline from, and
+ * Sportsbook Lobby renders a blank content area in this environment
+ * (nothing stable to check).
+ */
+const PAGE_ENGLISH_BASELINES: Record<string, string[]> = {
+  Home: ['TOP GAMES', 'POPULAR GAMES', 'PROVIDERS', 'NEW GAMES', 'LIVE GAMES', 'ALL GAMES'],
+  'Casino Lobby': ['Casino Lobby', 'Instant Wins', 'Scratch Cards', 'TOP GAMES'],
+  'Live Casino': ['Live Lobby', 'High stakes'],
+  FAQ: ['How to register?', 'I have forgotten my password'],
+  'Contact Us': ['do not hesitate to click on the small window'],
+  'Terms and Conditions': ['TERMS AND CONDITIONS', 'GENERAL TERMS'],
+  'Privacy Policy': ['PRIVACY POLICY', 'the lawful bases for such processing'],
+  'AML-KYC Policy': [
+    'ask for any KYC documentation it deems necessary',
+    'restrict the service, payment, or withdrawal until identity is sufficiently determined',
+  ],
+  'Responsible Gambling': ['RESPONSIBLE GAMING POLICY', 'Avoid chasing losses'],
+};
+
+/**
+ * NOT an English-fallback check — this string is wrong in EVERY locale
+ * including English itself (confirmed live 2026-09-10 on the
+ * Responsible Gambling page: the body text says "Shelbyspin is
+ * committed to providing..." instead of "FerraPlay"). A copy-paste
+ * template bug in the base legal content, same category as Wildies'
+ * WILDIES_LEVEL_NAMES brand-identity guard — checked directly against
+ * the page text rather than via `scanForEnglishFallback()`.
+ */
+const BRAND_NAME_BUG_STRING = 'Shelbyspin';
 
 // Confirmed live 2026-09-10 by opening the avatar menu while logged in.
 const AUTHENTICATED_PAGES = [
@@ -169,12 +216,23 @@ test.describe('ferraplay.com — translation coverage', () => {
               fullPage: false,
               dismissModalFirst: true,
             });
-            await ferraplayPage.verifyTranslation(`${p.name} (${locale.label}, anonymous, ${viewportName})`, [
-              'Main page content',
-              'Side navigation menu',
-              'Language switcher panel',
-              'Footer',
-            ]);
+
+            const pageBaseline = PAGE_ENGLISH_BASELINES[p.name];
+            const englishFallbackFlagged =
+              pageBaseline && locale.code !== 'en' ? await ferraplayPage.scanForEnglishFallback(pageBaseline) : [];
+            // Wrong-brand-name check — NOT locale-gated, confirmed
+            // present in English too (see BRAND_NAME_BUG_STRING's own
+            // comment).
+            const brandFlagged = await ferraplayPage.scanForEnglishFallback([BRAND_NAME_BUG_STRING]);
+            const brandNameFindings = brandFlagged.map((f) =>
+              f.replace(/^Still shows the English.*$/, `Page text says "${BRAND_NAME_BUG_STRING}" instead of "FerraPlay"`)
+            );
+
+            await ferraplayPage.verifyTranslation(
+              `${p.name} (${locale.label}, anonymous, ${viewportName})`,
+              ['Main page content', 'Side navigation menu', 'Language switcher panel', 'Footer'],
+              [...englishFallbackFlagged, ...brandNameFindings]
+            );
           });
         }
       }
