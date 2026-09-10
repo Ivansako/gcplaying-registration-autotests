@@ -13,6 +13,7 @@ on:
           - authenticated-account
           - game-providers
           - wildies-i18n
+          - ferraplay-i18n
           - spinoloco-provider-launch
           - all
       include_form_submitting:
@@ -49,16 +50,21 @@ jobs:
             authenticated-account) echo "path=tests/authenticated-user.spec.ts tests/authenticated-account.spec.ts tests/authenticated-profile.spec.ts" >> "$GITHUB_OUTPUT" ;;
             game-providers) echo "path=tests/game-providers.spec.ts" >> "$GITHUB_OUTPUT" ;;
             wildies-i18n) echo "path=tests/wildies-localizations.spec.ts tests/wildies-translation-coverage.spec.ts" >> "$GITHUB_OUTPUT" ;;
+            ferraplay-i18n) echo "path=tests/ferraplay-localizations.spec.ts tests/ferraplay-translation-coverage.spec.ts" >> "$GITHUB_OUTPUT" ;;
             spinoloco-provider-launch) echo "path=tests/spinoloco-thumbnails-categories.spec.ts tests/spinoloco-game-launch.spec.ts tests/spinoloco-real-bet.spec.ts" >> "$GITHUB_OUTPUT" ;;
             *) echo "path=" >> "$GITHUB_OUTPUT" ;;
           esac
-          # Each separate brand (Wildies, Spinoloco) is kept in its own
-          # config/results dir rather than gcplaying0175.com's — same
-          # reasoning as the local report split.
+          # Each separate brand (Wildies, FerraPlay, Spinoloco) is kept in
+          # its own config/results dir rather than gcplaying0175.com's —
+          # same reasoning as the local report split.
           if [ "${{ inputs.spec }}" == "wildies-i18n" ]; then
             echo "config=--config=playwright.wildies.config.ts" >> "$GITHUB_OUTPUT"
             echo "results-dir=allure-results-wildies" >> "$GITHUB_OUTPUT"
             echo "report-dir=allure-report-wildies" >> "$GITHUB_OUTPUT"
+          elif [ "${{ inputs.spec }}" == "ferraplay-i18n" ]; then
+            echo "config=--config=playwright.ferraplay.config.ts" >> "$GITHUB_OUTPUT"
+            echo "results-dir=allure-results-ferraplay" >> "$GITHUB_OUTPUT"
+            echo "report-dir=allure-report-ferraplay" >> "$GITHUB_OUTPUT"
           elif [ "${{ inputs.spec }}" == "spinoloco-provider-launch" ]; then
             echo "config=--config=playwright.spinoloco.config.ts" >> "$GITHUB_OUTPUT"
             echo "results-dir=allure-results-spinoloco" >> "$GITHUB_OUTPUT"
@@ -82,6 +88,8 @@ jobs:
           WILDIES_TEST_USER_PASSWORD_3: ${{ secrets.WILDIES_TEST_USER_PASSWORD_3 }}
           WILDIES_TEST_USER_EMAIL_4: ${{ secrets.WILDIES_TEST_USER_EMAIL_4 }}
           WILDIES_TEST_USER_PASSWORD_4: ${{ secrets.WILDIES_TEST_USER_PASSWORD_4 }}
+          FERRAPLAY_TEST_USER_EMAIL: ${{ secrets.FERRAPLAY_TEST_USER_EMAIL }}
+          FERRAPLAY_TEST_USER_PASSWORD: ${{ secrets.FERRAPLAY_TEST_USER_PASSWORD }}
           SPINOLOCO_TEST_USER_EMAIL_EUR: ${{ secrets.SPINOLOCO_TEST_USER_EMAIL_EUR }}
           SPINOLOCO_TEST_USER_PASSWORD_EUR: ${{ secrets.SPINOLOCO_TEST_USER_PASSWORD_EUR }}
           SPINOLOCO_TEST_USER_EMAIL_PLN: ${{ secrets.SPINOLOCO_TEST_USER_EMAIL_PLN }}

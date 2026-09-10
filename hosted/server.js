@@ -133,6 +133,16 @@ const SUITES = [
     category: 'localization',
   },
   {
+    value: 'ferraplay-i18n',
+    label: 'I18N Testing — FerraPlay',
+    sub:
+      'Checks language switching and translated content across every anonymous-access page — Home, Casino Lobby, ' +
+      'Live Casino, Buy Bonus, Sportsbook Lobby, Promotions, Tournaments, legal pages, Login/Sign Up, Forgot ' +
+      'Password, and the 404 error boundary — on both desktop and mobile, for every language except Nederlands ' +
+      'and Français. Authenticated pages are not covered yet — no test account is configured.',
+    category: 'localization',
+  },
+  {
     value: 'spinoloco-provider-launch',
     label: 'Provider (Vendor) Launch — spinoloco7545.com',
     sub:

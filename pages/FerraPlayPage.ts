@@ -1,0 +1,556 @@
+import { expect, Locator, Page } from '@playwright/test';
+import { attachment, descriptionHtml, step } from 'allure-js-commons';
+import { ContentType } from 'allure-js-commons';
+import { recordIssue } from '../utils/issueTracker';
+
+/**
+ * Page object for ferraplay.com's locale switcher and i18n coverage —
+ * a direct port of `WildiesPage.ts`'s equivalent methods, confirmed
+ * live 2026-09-10 that ferraplay.com runs the exact same underlying
+ * "Wiz" platform as beta.wildies.com (identical `data-icon-button-type`/
+ * `data-sidemenu`/`data-modal` markup, hashed `dyn-xx` CSS class names,
+ * identical login modal and generic error-boundary shape) — every
+ * selector below was independently re-verified live on THIS site rather
+ * than assumed to carry over, but they turned out to match exactly.
+ *
+ * Scope note (2026-09-10): this first version covers everything
+ * reachable WITHOUT a logged-in session — anonymous pages, locale
+ * switching, footer, 404/error boundary, Login/Sign Up/Forgot Password
+ * popups, Promotions. Authenticated pages (account area, cashier, game
+ * history) are deliberately not built yet — no FerraPlay test account
+ * exists until one is provided (see `utils/ferraplayAccounts.ts`).
+ * FerraPlay's own "Loyalty"/"Missions" features (distinct nav items,
+ * not the Smartico "Match X" widget Wildies has) haven't been
+ * investigated at all yet — not assumed to work the same way.
+ *
+ * Confirmed live 2026-09-10:
+ *  - URL is a path prefix per locale (`/it`, `/el`, ...); English is the
+ *    exception, served at bare "/" — visiting "/en" explicitly redirects
+ *    back to "/".
+ *  - A fresh visit to bare "/" resolves by geo-IP (this environment's
+ *    network landed on French) rather than always English — same
+ *    quirk already documented for Wildies; only an explicit non-English
+ *    prefix is reliable from automation.
+ *  - The switcher lives inside the left sidebar
+ *    (`aside[data-sidemenu="container"]`), opened via the header's icon
+ *    button (`header [data-icon-button-type="first-icon"]`), toggling
+ *    `body` between `sidebar-open`/`sidebar-close` classes.
+ */
+export class FerraPlayPage {
+  readonly page: Page;
+
+  readonly sideMenuToggle: Locator;
+  readonly langSwitcherTrigger: Locator;
+  readonly langSwitcherPanel: Locator;
+
+  private pendingModalFindings: string[] = [];
+
+  constructor(page: Page) {
+    this.page = page;
+
+    // Scoped to <header> and `.first()` — same generic template
+    // attribute reuse Wildies documented (search icon, pagination
+    // arrows also use `data-icon-button-type`).
+    this.sideMenuToggle = page.locator('header [data-icon-button-type="first-icon"]').first();
+    this.langSwitcherTrigger = page.locator('[data-sidemenu="lang-switcher-trigger"]');
+    this.langSwitcherPanel = page.locator('[data-sidemenu="lang-switcher"]');
+  }
+
+  async open(localeSegment = ''): Promise<void> {
+    await step(`Open ferraplay.com${localeSegment ? '/' + localeSegment : ''}`, async () => {
+      await this.page.goto(`/${localeSegment}`);
+      await this.page.waitForLoadState('domcontentloaded');
+    });
+  }
+
+  /**
+   * Visits an arbitrary path under a given locale's URL prefix. `path`
+   * is joined directly, so pass it with a leading slash (`/casino`, not
+   * `casino`); `localeSegment` is empty for English.
+   */
+  async visitPage(path: string, localeSegment = ''): Promise<void> {
+    const url = localeSegment ? `/${localeSegment}${path}` : path;
+    await step(`Open ${url}`, async () => {
+      await this.page.goto(url);
+      await this.page.waitForLoadState('domcontentloaded');
+    });
+  }
+
+  async visitNonExistentPage(localeSegment = ''): Promise<void> {
+    await step('Open a non-existent page (checks the error boundary)', async () => {
+      const url = localeSegment ? `/${localeSegment}/this-page-does-not-exist-xyz` : '/this-page-does-not-exist-xyz';
+      await this.page.goto(url);
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.page.waitForTimeout(1_500);
+    });
+  }
+
+  takePendingModalFindings(): string[] {
+    const findings = this.pendingModalFindings;
+    this.pendingModalFindings = [];
+    return findings;
+  }
+
+  /**
+   * Closes a blocking popup if one is auto-shown — same `[data-modal-
+   * overlay="true"]` / `[data-modal-close-button]` mechanism as Wildies.
+   * Scans the popup's own text for untranslated keys BEFORE closing it
+   * (real, locale-specific content a player would actually see),
+   * draining via `takePendingModalFindings()`.
+   */
+  async dismissModalIfPresent(): Promise<void> {
+    const overlay = this.page.locator('[data-modal-overlay="true"]').first();
+    if (!(await overlay.isVisible({ timeout: 2_000 }).catch(() => false))) return;
+
+    await step('Dismiss the modal popup, if shown', async () => {
+      for (const f of await this.scanForUntranslatedText()) {
+        if (!this.pendingModalFindings.includes(f)) this.pendingModalFindings.push(f);
+      }
+      await overlay
+        .locator('[data-modal-close-button]')
+        .click()
+        .then(() => expect(overlay).toBeHidden({ timeout: 5_000 }))
+        .catch(() => {});
+    });
+  }
+
+  private async clickSideMenuToggle(): Promise<void> {
+    const isNarrowViewport = (this.page.viewportSize()?.width ?? 1280) < 700;
+    const toggle = isNarrowViewport ? this.page.locator('#bottom-navigation > div').first() : this.sideMenuToggle;
+    await toggle.click();
+  }
+
+  async openSideMenu(): Promise<void> {
+    await step('Open the side menu', async () => {
+      const isOpen = await this.page.evaluate(() => document.body.className.includes('sidebar-open'));
+      if (isOpen) return;
+      try {
+        await expect(this.page.locator('body')).toHaveClass(/sidebar-open/, { timeout: 3_000 });
+      } catch {
+        await this.clickSideMenuToggle();
+        await expect(this.page.locator('body')).toHaveClass(/sidebar-open/, { timeout: 5_000 });
+      }
+    });
+  }
+
+  async closeSideMenu(): Promise<void> {
+    await step('Close the side menu', async () => {
+      const isOpen = await this.page.evaluate(() => document.body.className.includes('sidebar-open'));
+      if (!isOpen) return;
+      await this.clickSideMenuToggle();
+      await expect(this.page.locator('body')).not.toHaveClass(/sidebar-open/, { timeout: 3_000 }).catch(() => {});
+    });
+  }
+
+  /**
+   * Switches to `displayName` (the option's own native-language label)
+   * via the sidebar dropdown, then returns the resulting `<html lang>`.
+   */
+  async switchLocale(displayName: string): Promise<string> {
+    return step(`Switch locale to: ${displayName}`, async () => {
+      const previousUrl = this.page.url();
+      const previousLang = await this.getCurrentLocale();
+
+      await this.openSideMenu();
+      await this.langSwitcherTrigger.click();
+      const option = this.langSwitcherPanel.getByRole('link', { name: displayName, exact: true });
+      await expect(option).toBeVisible();
+      await option.click();
+
+      await this.page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 10_000 }).catch(() => {});
+      await this.page
+        .waitForFunction((prev) => document.documentElement.lang !== prev, previousLang, { timeout: 5_000 })
+        .catch(() => {});
+      return this.getCurrentLocale();
+    });
+  }
+
+  async getCurrentLocale(): Promise<string> {
+    return this.page.evaluate(() => document.documentElement.lang);
+  }
+
+  /**
+   * Reads every option currently offered in the dropdown — discovery-
+   * driven rather than hardcoded, so a change in what the site actually
+   * offers shows up here instead of silently going unnoticed.
+   */
+  async getAvailableLocaleLabels(): Promise<string[]> {
+    await this.openSideMenu();
+    await this.langSwitcherTrigger.click();
+    const links = this.langSwitcherPanel.getByRole('link');
+    await expect(links.first()).toBeVisible();
+    const labels = await links.allTextContents();
+    await this.closeSideMenu();
+    return labels;
+  }
+
+  /**
+   * Logs in via the header's login button + modal. Not yet exercised
+   * live (no test account configured as of 2026-09-10) — ported
+   * directly from `WildiesPage.submitLoginForm()`/`login()` since the
+   * modal itself (`button[data-header-button]`, `data-modal="Login"`,
+   * `input[name="usernameEmail"]`) was confirmed identical; the
+   * post-login "balance visible in header" signal has NOT been
+   * confirmed live yet and should be re-checked the first time this
+   * actually runs against a real account.
+   */
+  async login(email: string, password: string): Promise<void> {
+    await step(`Log in as ${email}`, async () => {
+      await this.dismissModalIfPresent();
+      const headerButtons = this.page.locator('button[data-header-button]');
+      const emailInput = this.page.locator('input[name="usernameEmail"]');
+      await headerButtons.first().click();
+      try {
+        await emailInput.waitFor({ timeout: 3_000 });
+      } catch {
+        await headerButtons.first().click();
+        await emailInput.waitFor({ timeout: 10_000 });
+      }
+      await emailInput.fill(email);
+      await this.page.locator('input[name="password"]').fill(password);
+      await this.page
+        .locator('input[name="password"]')
+        .locator('xpath=ancestor::form[1]')
+        .locator('button[type="submit"]')
+        .click();
+      await expect(this.page.locator('header').getByText(/[€$]\s?[\d,.]+/)).toBeVisible({ timeout: 15_000 });
+      await this.dismissModalIfPresent();
+    });
+  }
+
+  /**
+   * Opens the Login/Sign Up modal, optionally switching to the Sign Up
+   * tab. Confirmed live 2026-09-10: identical markup to Wildies
+   * (`button[data-header-button]`, `[data-modal-overlay="true"]`,
+   * register tab's first button inside `[data-modal-body="true"]`).
+   */
+  async openAuthModal(tab: 'login' | 'register' = 'login'): Promise<void> {
+    await step(`Open the ${tab === 'register' ? 'Sign Up' : 'Login'} modal`, async () => {
+      const headerButtons = this.page.locator('button[data-header-button]');
+      const overlay = this.page.locator('[data-modal-overlay="true"]');
+      await headerButtons.first().click();
+      try {
+        await overlay.waitFor({ timeout: 4_000 });
+      } catch {
+        await headerButtons.first().click();
+        await overlay.waitFor({ timeout: 10_000 });
+      }
+      if (tab === 'register') {
+        await overlay.locator('[data-modal-body="true"] button').first().click();
+        await expect(this.page.locator('input[name="email"]')).toBeVisible({ timeout: 5_000 });
+      }
+    });
+  }
+
+  /**
+   * Opens the Login modal's Forgot Password form — same
+   * `form[type="Login"] button[type="button"]` locator as Wildies (the
+   * visibility toggle is a `div`, not a `button`, so this stays
+   * unambiguous — confirmed live by inspecting the actual DOM). Retries
+   * the click once on a timeout: confirmed live 2026-09-10 the very
+   * first click right after the modal opens can land before the SPA has
+   * hydrated this particular button's handler — same hydration-race
+   * class already documented/retried elsewhere in this codebase (e.g.
+   * `WildiesPage.submitLoginForm()`), just not previously hit on THIS
+   * specific transition.
+   */
+  async openForgotPasswordForm(): Promise<void> {
+    await step('Open the Forgot Password form', async () => {
+      await this.openAuthModal('login');
+      const forgotButton = this.page.locator('[data-modal-overlay="true"] form[type="Login"] button[type="button"]').first();
+      const emailField = this.page.locator('[data-modal-overlay="true"] #email');
+      await forgotButton.click();
+      try {
+        await expect(emailField).toBeVisible({ timeout: 5_000 });
+      } catch {
+        await forgotButton.click();
+        await expect(emailField).toBeVisible({ timeout: 10_000 });
+      }
+    });
+  }
+
+  async submitForgotPassword(email: string): Promise<void> {
+    await step(`Submit Forgot Password for ${email}`, async () => {
+      await this.page.locator('[data-modal-overlay="true"] #email').fill(email);
+      await this.page.locator('[data-modal-overlay="true"] form[type="ForgotPassword"] button[type="submit"]').click();
+      await this.page.waitForTimeout(2_500);
+    });
+  }
+
+  /**
+   * Submits the login form with credentials expected to fail and
+   * confirms it didn't succeed (no balance ever appears in the header).
+   */
+  async expectLoginFailure(email: string, password: string): Promise<void> {
+    await step(`Attempt login with invalid credentials: ${email}`, async () => {
+      await this.dismissModalIfPresent();
+      const headerButtons = this.page.locator('button[data-header-button]');
+      const emailInput = this.page.locator('input[name="usernameEmail"]');
+      await headerButtons.first().click();
+      try {
+        await emailInput.waitFor({ timeout: 3_000 });
+      } catch {
+        await headerButtons.first().click();
+        await emailInput.waitFor({ timeout: 10_000 });
+      }
+      await emailInput.fill(email);
+      await this.page.locator('input[name="password"]').fill(password);
+      await this.page
+        .locator('input[name="password"]')
+        .locator('xpath=ancestor::form[1]')
+        .locator('button[type="submit"]')
+        .click();
+      await expect(this.page.locator('header').getByText(/[€$]\s?[\d,.]+/)).not.toBeVisible({ timeout: 8_000 });
+    });
+  }
+
+  /**
+   * Fills Sign Up with an EXISTING account's email (real server-side
+   * "already registered" validation) and submits if the button actually
+   * enables — confirmed live 2026-09-10 the same field ids as Wildies
+   * (`#email`, `#passwordHints`) exist on this form. Never actually
+   * creates an account either way (the email is already taken).
+   */
+  async attemptDuplicateEmailRegistration(email: string): Promise<{ attempted: boolean }> {
+    return step(`Attempt Sign Up with an already-registered email: ${email}`, async () => {
+      await this.openAuthModal('register');
+      const overlay = this.page.locator('[data-modal-overlay="true"]');
+      await overlay.locator('#email').pressSequentially(email, { delay: 15 });
+      await overlay.locator('#passwordHints').pressSequentially('NotARealPass9', { delay: 15 });
+      await this.page.keyboard.press('Tab');
+      await this.page.waitForTimeout(1_500);
+      const submitBtn = overlay.locator('button[type="submit"]');
+      if (await submitBtn.isDisabled()) return { attempted: false };
+      await submitBtn.click();
+      await this.page.waitForTimeout(2_500);
+      return { attempted: true };
+    });
+  }
+
+  /**
+   * Pure, self-contained scanner for raw/untranslated i18n keys leaking
+   * into visible text — identical patterns to
+   * `WildiesPage.untranslatedTextScanner` (dot.separated.key,
+   * SCREAMING_SNAKE_CASE with 4+ segments, leftover `{{ placeholder }}`,
+   * stringified JS values).
+   */
+  private static readonly untranslatedTextScanner = () => {
+    const KEY_PATTERNS: RegExp[] = [
+      /^[a-z][a-z0-9]*(\.[a-z][a-z0-9]*){1,}$/i,
+      /^[A-Z][A-Z0-9]*(_[A-Z0-9]+){3,}$/,
+      /\{\{\s*[\w.]+\s*\}\}/,
+      /^\[object Object\]$/,
+      /^(undefined|null|NaN)$/,
+    ];
+    const DOMAIN_LIKE = /\.(com|io|net|org|co|app|gg|ai)\b/i;
+
+    const seen = new Set<string>();
+    const flagged: string[] = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        const text = node.textContent?.trim();
+        if (!text) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent || ['SCRIPT', 'STYLE', 'NOSCRIPT'].includes(parent.tagName)) return NodeFilter.FILTER_REJECT;
+        const style = getComputedStyle(parent);
+        if (style.display === 'none' || style.visibility === 'hidden') return NodeFilter.FILTER_REJECT;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      const text = node.textContent!.trim();
+      if (seen.has(text) || DOMAIN_LIKE.test(text)) continue;
+      if (KEY_PATTERNS.some((re) => re.test(text))) {
+        seen.add(text);
+        flagged.push(text);
+      }
+    }
+    return flagged;
+  };
+
+  async scanForUntranslatedText(): Promise<string[]> {
+    return this.page.evaluate(FerraPlayPage.untranslatedTextScanner);
+  }
+
+  async scanForEnglishFallback(englishPhrases: string[], scope: Locator = this.page.locator('body')): Promise<string[]> {
+    const bodyText = await scope.innerText();
+    return englishPhrases
+      .filter((phrase) => bodyText.includes(phrase))
+      .map((phrase) => `Still shows the English "${phrase}" — this page appears to have fallen back to English instead of translating`);
+  }
+
+  /**
+   * Global, page-agnostic English phrases for the footer's English-
+   * fallback check — confirmed live 2026-09-10 by diffing the English
+   * footer against Italiano's (the only non-English, non-excluded
+   * locale checked so far): "Casino"/"Promotions"/"Sports"/"FAQ" all
+   * stayed the same or close enough in Italian to be unsafe (loanwords,
+   * same reasoning Wildies already documented for its own dropped
+   * candidates) — only these 5 visibly changed. NOT yet cross-checked
+   * against Português/Ελληνικά/Español/Polski/Magyar — do that before
+   * trusting this list as exhaustive, same discipline as Wildies'
+   * `GLOBAL_ENGLISH_UI_PHRASES`.
+   */
+  private static readonly GLOBAL_ENGLISH_UI_PHRASES = [
+    'Contact Us',
+    'Terms and Conditions',
+    'Privacy Policy',
+    'AML-KYC Policy',
+    'Responsible Gambling',
+  ];
+
+  async verifyFooterTranslation(localeLabel: string, localeCode: string): Promise<void> {
+    await step(`Verify footer translation: ${localeLabel}`, async () => {
+      const flagged =
+        localeCode === 'en' ? [] : await this.scanForEnglishFallback(FerraPlayPage.GLOBAL_ENGLISH_UI_PHRASES, this.page.locator('footer'));
+
+      if (flagged.length === 0) {
+        await descriptionHtml(
+          `<div style="font-family: sans-serif; font-size: 13px; line-height: 1.6;">` +
+            `<p><strong>What was checked:</strong> The footer under "${localeLabel}" was scanned against a ` +
+            'known-English phrase baseline ("Contact Us", "Privacy Policy", "Terms and Conditions", ...) to ' +
+            'catch a link silently staying in English instead of translating.</p>' +
+            `<p><strong>Result:</strong> ✅ Fully translated — no English fallback found.</p></div>`
+        );
+        return;
+      }
+
+      recordIssue({
+        where: 'Footer',
+        severity: 'High (content/localization bug)',
+        rootCause: `❌ ${flagged.length} footer link(s) still show English under "${localeLabel}": ${flagged.join(', ')}.`,
+        whatToCheck:
+          `Open the footer under "${localeLabel}" in a real browser and confirm the link(s) above render in ` +
+          'English instead of a real translation. Usually a missing translation entry for this locale.',
+        explainsFailure: true,
+      });
+      expect(flagged, `Footer shows English fallback under ${localeLabel}: ${flagged.join(', ')}`).toEqual([]);
+    });
+  }
+
+  async verifyTranslation(pageLabel: string, sectionsChecked: string[], extraFlagged: string[] = []): Promise<void> {
+    await step(`Verify translation completeness: ${pageLabel}`, async () => {
+      const pageFlagged = await this.scanForUntranslatedText();
+      const flagged = [...pageFlagged, ...extraFlagged.filter((f) => !pageFlagged.includes(f))];
+
+      const overflowPx = await this.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      if (overflowPx > 20) {
+        flagged.push(
+          `Layout overflow: the page renders ${overflowPx}px wider than the viewport — likely a translated ` +
+            `string that doesn't fit its container at this screen size`
+        );
+      }
+
+      const sectionsText = sectionsChecked.length ? ` Sections examined: ${sectionsChecked.join(', ')}.` : '';
+      const whatWasChecked =
+        `<strong>${pageLabel}</strong> was opened and every visible piece of text on the page — headings, ` +
+        'buttons, menu items, form labels, footer links, and any popups/panels opened as part of this check — ' +
+        'was scanned for raw, untranslated i18n keys (patterns such as a dot.separated.key, ' +
+        'SCREAMING_SNAKE_CASE, a leftover {{ placeholder }}, or a stringified JS value like "undefined" ' +
+        `leaking into the UI), and the page's rendered width was checked against the viewport to catch a ` +
+        `translated string long enough to break the layout.${sectionsText}`;
+
+      if (flagged.length === 0) {
+        await descriptionHtml(
+          `<div style="font-family: sans-serif; font-size: 13px; line-height: 1.6;">` +
+            `<p><strong>What was checked:</strong> ${whatWasChecked}</p>` +
+            `<p><strong>Result:</strong> ✅ Fully translated — no untranslated text or layout overflow was found.</p>` +
+            `<p><strong>Should be retested manually:</strong> Not needed — the automated scan already covers ` +
+            `every visible string on this exact page/locale/viewport combination.</p></div>`
+        );
+        return;
+      }
+
+      recordIssue({
+        where: pageLabel,
+        severity: 'High (content/localization bug)',
+        whatChecked: whatWasChecked,
+        rootCause:
+          `❌ ${flagged.length} piece(s) of text render as a raw, untranslated key instead of real content: ` +
+          `${flagged.map((f) => `"${f}"`).join(', ')}.`,
+        whatToCheck:
+          'Open this exact page/locale in a real browser and confirm the literal string(s) above render as ' +
+          'visible text instead of real, translated content. Usually a missing translation entry for this ' +
+          "locale, or a key that's never been localized.",
+        explainsFailure: true,
+      });
+      expect(flagged, `Untranslated text found on ${pageLabel}: ${flagged.join(', ')}`).toEqual([]);
+    });
+  }
+
+  /**
+   * Plain visual-evidence screenshot — same `#bottom-navigation` hide-
+   * on-mobile fix as `WildiesPage.captureScreenshot()` (confirmed live
+   * 2026-09-10 the same element exists here, same fixed-position
+   * scroll-and-stitch artifact risk).
+   */
+  async captureScreenshot(name: string, opts: { fullPage?: boolean; dismissModalFirst?: boolean } = {}): Promise<void> {
+    const fullPage = opts.fullPage ?? true;
+    if (opts.dismissModalFirst) {
+      await this.dismissModalIfPresent();
+    }
+    await step(`Screenshot: ${name}`, async () => {
+      await this.page.waitForLoadState('networkidle', { timeout: 3_000 }).catch(() => {});
+      const HIDE_STYLE_ID = 'ferraplay-test-hide-bottom-nav';
+      if (fullPage) {
+        await this.page
+          .evaluate((id) => {
+            const style = document.createElement('style');
+            style.id = id;
+            style.textContent = '#bottom-navigation { display: none !important; }';
+            document.head.appendChild(style);
+          }, HIDE_STYLE_ID)
+          .catch(() => {});
+      }
+      const buffer = await this.page.screenshot({ fullPage, timeout: 30_000 });
+      if (fullPage) {
+        await this.page
+          .evaluate((id) => {
+            document.getElementById(id)?.remove();
+          }, HIDE_STYLE_ID)
+          .catch(() => {});
+      }
+      await attachment(name, buffer, ContentType.PNG);
+    });
+  }
+
+  /**
+   * Discovery-driven: opens every promotion's own "More info" panel (if
+   * any), scans each for untranslated text, and closes it again. Mirrors
+   * `WildiesPage.verifyAllPromotionTerms()` — NOT yet confirmed live
+   * that "More info" opens an in-page panel vs. a modal vs. a separate
+   * page on FerraPlay specifically (only confirmed the buttons exist);
+   * verify the interaction the first time this actually runs.
+   */
+  async verifyAllPromotionTerms(): Promise<{ found: number; opened: number; flagged: string[] }> {
+    return step('Open every promotion\'s own Terms & Conditions', async () => {
+      const buttons = this.page.getByRole('button', { name: /more info/i });
+      const found = await buttons.count();
+      let opened = 0;
+      const flagged: string[] = [];
+
+      for (let i = 0; i < found; i++) {
+        try {
+          await buttons.nth(i).click();
+          await this.page.waitForTimeout(500);
+          const overlay = this.page.locator('[data-modal-overlay="true"]').first();
+          await overlay.waitFor({ timeout: 5_000 });
+          opened++;
+          flagged.push(...(await this.scanForUntranslatedText()));
+          await overlay
+            .locator('[data-modal-close-button]')
+            .click()
+            .then(() => expect(overlay).toBeHidden({ timeout: 5_000 }))
+            .catch(() => {});
+        } catch {
+          // Counted in `found` but not `opened` — surfaced by the call
+          // site as its own finding rather than silently skipped.
+        }
+      }
+
+      return { found, opened, flagged: [...new Set(flagged)] };
+    });
+  }
+}
