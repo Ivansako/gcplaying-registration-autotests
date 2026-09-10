@@ -558,14 +558,17 @@ export class FerraPlayPage {
   /**
    * Global, page-agnostic English phrases for the footer's English-
    * fallback check — confirmed live 2026-09-10 by diffing the English
-   * footer against Italiano's (the only non-English, non-excluded
-   * locale checked so far): "Casino"/"Promotions"/"Sports"/"FAQ" all
-   * stayed the same or close enough in Italian to be unsafe (loanwords,
-   * same reasoning Wildies already documented for its own dropped
-   * candidates) — only these 5 visibly changed. NOT yet cross-checked
-   * against Português/Ελληνικά/Español/Polski/Magyar — do that before
-   * trusting this list as exhaustive, same discipline as Wildies'
-   * `GLOBAL_ENGLISH_UI_PHRASES`.
+   * footer against ALL 6 non-English, non-excluded locales (Italiano,
+   * Português, Ελληνικά, Español, Polski, Magyar): these exact 5 phrases
+   * translate consistently in every one. Deliberately excluded, same
+   * discipline as Wildies' own dropped candidates:
+   * - "FAQ" — genuinely kept as-is in Italiano/Polski, but translated in
+   *   Ελληνικά ("Συχνές ερωτήσεις") and Magyar ("GYIK") — inconsistent,
+   *   would false-positive on the locales that legitimately keep it.
+   * - "Affiliate Program" — translated in Italiano/Português/Español/
+   *   Polski but stays literal English in Magyar — same inconsistency.
+   * - "Casino"/"Promotions"/"Sports" — retained loanwords in most tested
+   *   locales.
    */
   private static readonly GLOBAL_ENGLISH_UI_PHRASES = [
     'Contact Us',
