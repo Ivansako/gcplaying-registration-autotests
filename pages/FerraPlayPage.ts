@@ -443,10 +443,34 @@ export class FerraPlayPage {
     });
   }
 
+  /**
+   * Retries both the email fill and the submit click — confirmed live
+   * 2026-09-10 across two separate full-suite runs that this form races
+   * a re-render right after opening: the `#email` input can get
+   * detached and re-attached mid-`fill()` ("element was detached from
+   * the DOM, retrying" — Playwright's own retry already handles a
+   * SHORT detach, but this one outlasted the 15s default at least
+   * twice), and separately the submit button's very first click can
+   * land before its handler is ready (same hydration-race class already
+   * fixed for the "Forgot password" link click in
+   * `openForgotPasswordForm()`). A brief settle wait before filling,
+   * plus one retry on each step, is what actually stopped the flakiness.
+   */
   async submitForgotPassword(email: string): Promise<void> {
     await step(`Submit Forgot Password for ${email}`, async () => {
-      await this.page.locator('[data-modal-overlay="true"] #email').fill(email);
-      await this.page.locator('[data-modal-overlay="true"] form[type="ForgotPassword"] button[type="submit"]').click();
+      const emailField = this.page.locator('[data-modal-overlay="true"] #email');
+      await this.page.waitForTimeout(500); // let the just-opened form's re-render settle
+      try {
+        await emailField.fill(email, { timeout: 8_000 });
+      } catch {
+        await emailField.fill(email);
+      }
+      const submitButton = this.page.locator('[data-modal-overlay="true"] form[type="ForgotPassword"] button[type="submit"]');
+      try {
+        await submitButton.click({ timeout: 8_000 });
+      } catch {
+        await submitButton.click();
+      }
       await this.page.waitForTimeout(2_500);
     });
   }
