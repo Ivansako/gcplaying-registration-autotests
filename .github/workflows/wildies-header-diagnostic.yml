@@ -1,0 +1,36 @@
+name: Wildies header diagnostic
+
+# One-off diagnostic, not part of the regular suite: screenshots
+# beta.wildies.com's Home page from a GitHub Actions runner right before
+# and right after attempting to click the side-menu toggle. Every
+# ANONYMOUS_PAGES test in wildies-translation-coverage.spec.ts times out
+# on exactly this click from CI (100% reproducible across 2 full runs),
+# while pages that never touch it (Promotions, 404, Footer) pass 100% of
+# the time over the same connection — so this isn't a network/CF-Access
+# problem, something is specifically wrong with this button from CI.
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+      - name: Run header diagnostic
+        env:
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: node scripts/wildies-header-diagnostic.js
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: wildies-header-diagnostic
+          path: diagnostic-*.png
+          retention-days: 7
