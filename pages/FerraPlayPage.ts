@@ -13,15 +13,18 @@ import { recordIssue } from '../utils/issueTracker';
  * selector below was independently re-verified live on THIS site rather
  * than assumed to carry over, but they turned out to match exactly.
  *
- * Scope note (2026-09-10): this first version covers everything
- * reachable WITHOUT a logged-in session — anonymous pages, locale
- * switching, footer, 404/error boundary, Login/Sign Up/Forgot Password
- * popups, Promotions. Authenticated pages (account area, cashier, game
- * history) are deliberately not built yet — no FerraPlay test account
- * exists until one is provided (see `utils/ferraplayAccounts.ts`).
- * FerraPlay's own "Loyalty"/"Missions" features (distinct nav items,
- * not the Smartico "Match X" widget Wildies has) haven't been
- * investigated at all yet — not assumed to work the same way.
+ * Scope: anonymous pages, locale switching, footer, 404/error boundary,
+ * Login/Sign Up/Forgot Password popups, Promotions, and (since
+ * 2026-09-10, once real test accounts were provided) the authenticated
+ * side — account menu, Cashier UI, authenticated pages, Game History,
+ * and one real minimum-bet slot spin. FerraPlay's own "Loyalty"/
+ * "Missions" features (distinct nav items, not the Smartico "Match X"
+ * widget Wildies has) haven't been investigated at all yet — not
+ * assumed to work the same way. The sportsbook (`/sport`) does NOT
+ * render any widget in this environment even when logged in (confirmed
+ * live 2026-09-10 — the content area stays blank, no `iframe` beyond
+ * the license/live-chat ones) — no real sportsbook bet is placed, and
+ * there's no "Sportsbook My Bets" check, unlike Wildies.
  *
  * Confirmed live 2026-09-10:
  *  - URL is a path prefix per locale (`/it`, `/el`, ...); English is the
@@ -185,14 +188,10 @@ export class FerraPlayPage {
   }
 
   /**
-   * Logs in via the header's login button + modal. Not yet exercised
-   * live (no test account configured as of 2026-09-10) — ported
-   * directly from `WildiesPage.submitLoginForm()`/`login()` since the
-   * modal itself (`button[data-header-button]`, `data-modal="Login"`,
-   * `input[name="usernameEmail"]`) was confirmed identical; the
-   * post-login "balance visible in header" signal has NOT been
-   * confirmed live yet and should be re-checked the first time this
-   * actually runs against a real account.
+   * Logs in via the header's login button + modal. Confirmed live
+   * 2026-09-10 with a real account — the "Finances" cashier modal
+   * auto-opens right after login (same as Wildies), dismissed by the
+   * caller via `dismissModalIfPresent()`.
    */
   async login(email: string, password: string): Promise<void> {
     await step(`Log in as ${email}`, async () => {
@@ -215,6 +214,181 @@ export class FerraPlayPage {
         .click();
       await expect(this.page.locator('header').getByText(/[€$]\s?[\d,.]+/)).toBeVisible({ timeout: 15_000 });
       await this.dismissModalIfPresent();
+    });
+  }
+
+  async getBalanceText(): Promise<string> {
+    return (await this.page.locator('header').getByText(/[€$]\s?[\d,.]+/).first().textContent())?.trim() ?? '';
+  }
+
+  /**
+   * Opens the account avatar dropdown. The avatar is always the LAST
+   * `header button[data-icon-button-type="wrapper"]`, not a fixed index
+   * — confirmed live 2026-09-10 there are 3 on mobile (burger, search,
+   * avatar) but only 2 on Desktop (burger, avatar; the search icon
+   * collapses into an inline search bar at that width instead), so a
+   * hardcoded `.nth(2)` matched on mobile and timed out on Desktop.
+   *
+   * The "opened" signal is deliberately NOT `data-modal=
+   * "userHeaderProfile"` (that's what Wildies uses, and what this
+   * dropdown renders as on FerraPlay's own MOBILE viewport) — confirmed
+   * live 2026-09-10 that on Desktop the exact same menu items
+   * (Profile Info, Notifications, Verification, ...) render in a plain
+   * `<div><ul><li><a>` dropdown with NO `data-modal`/`data-modal-
+   * overlay` attribute anywhere, a materially different component from
+   * the mobile full-screen sheet. The one link both versions share is
+   * `a[href="/account/info"]` ("Profile Info"), so that's the real
+   * viewport-agnostic success signal.
+   */
+  async openAccountMenu(): Promise<void> {
+    await step('Open the account avatar dropdown', async () => {
+      const profileInfoLink = this.page.locator('a[href="/account/info"]').first();
+      if (await profileInfoLink.isVisible().catch(() => false)) return;
+      const avatarButton = this.page.locator('header button[data-icon-button-type="wrapper"]').last();
+      let opened = false;
+      for (let attempt = 0; attempt < 5 && !opened; attempt++) {
+        await this.dismissModalIfPresent();
+        try {
+          await avatarButton.click({ timeout: 5_000 });
+          await expect(profileInfoLink).toBeVisible({ timeout: 4_000 });
+          opened = true;
+        } catch {
+          // Loop again — a fresh dismiss + click attempt.
+        }
+      }
+      if (!opened) {
+        // Final attempt, letting its own error surface if this is a real
+        // failure rather than another round of the same race.
+        await this.dismissModalIfPresent();
+        await avatarButton.click();
+        await expect(profileInfoLink).toBeVisible({ timeout: 8_000 });
+      }
+    });
+  }
+
+  /**
+   * Opens the "Cassa"/Cashier modal (`data-modal="Finances"`) via the
+   * header's balance/Deposit trigger — confirmed live 2026-09-10 this
+   * is `header button[data-button-type="wrapper"]` (note: `data-button-
+   * type`, NOT `data-icon-button-type` — a plain text+icon button, not
+   * one of the icon-only ones), same auto-open-after-login race as
+   * Wildies' equivalent.
+   */
+  async openCashier(): Promise<void> {
+    await step('Open the Cashier (Deposit/Withdraw) modal', async () => {
+      const financesModal = this.page.locator('[data-modal-overlay="true"][data-modal="Finances"]');
+      if (await financesModal.isVisible({ timeout: 1_500 }).catch(() => false)) return;
+      await this.dismissModalIfPresent();
+      const depositButton = this.page.locator('header button[data-button-type="wrapper"]').first();
+      try {
+        await depositButton.click({ timeout: 8_000 });
+      } catch {
+        await this.dismissModalIfPresent();
+        await depositButton.click();
+      }
+      await expect(financesModal).toBeVisible({ timeout: 8_000 });
+    });
+  }
+
+  /**
+   * Switches the open Cashier modal between its two tabs — same
+   * index-based pattern as Wildies (labels are translated, order is
+   * fixed: 0 = Deposit, 1 = Withdraw).
+   */
+  async switchCashierTab(tab: 'deposit' | 'withdraw'): Promise<void> {
+    await step(`Switch Cashier to: ${tab}`, async () => {
+      const idx = tab === 'deposit' ? 0 : 1;
+      await this.page
+        .locator('[data-modal-overlay="true"][data-modal="Finances"] [data-modal-body="true"] button')
+        .nth(idx)
+        .click();
+      await this.page.waitForTimeout(500);
+    });
+  }
+
+  /**
+   * Launches a game by its `/game/real/{id}` href and confirms it
+   * reaches a playable state. Retries once on a failed click — confirmed
+   * live 2026-09-10 the auto-opening "Finances" modal can intercept
+   * this exact click right after login, same race Wildies documents for
+   * its own `launchGame()`.
+   */
+  async launchGame(href: string): Promise<void> {
+    await step(`Launch game: ${href}`, async () => {
+      await this.dismissModalIfPresent();
+      const gameLink = this.page.locator(`a[href="${href}"]`).first();
+      try {
+        await gameLink.click({ timeout: 5_000 });
+      } catch {
+        await this.dismissModalIfPresent();
+        await gameLink.click();
+      }
+      await this.page.waitForTimeout(8_000);
+    });
+  }
+
+  async expectGameReachedPlayableState(): Promise<void> {
+    await step('Verify the game reached a playable state', async () => {
+      await expect(this.page.locator('iframe').first()).toBeVisible({ timeout: 15_000 });
+    });
+  }
+
+  /**
+   * Places ONE real, minimum-bet spin on a specific, pre-confirmed game
+   * ("Book of Ra" by Novomatic/Greentube — the real title starts "BOOK
+   * OF R..." and is cut off by the game's own logo art, confirmed via
+   * its `/game/real/23929` href being the first Top Games card,
+   * 2026-09-10) and reports the balance before/after. Same
+   * canvas-with-no-accessible-DOM constraint as Wildies'
+   * `spinFirstAvailableGame()`: coordinate-based, confirmed live ONLY at
+   * a 1280x800 viewport.
+   *
+   * Deliberately called ONCE per suite run (seeds one real Game History
+   * row that every locale/viewport combination's Game History check
+   * then just navigates to and reads — re-spinning per locale would
+   * multiply real-money spend for no extra signal).
+   *
+   * Flow confirmed live 2026-09-10: launch → game loads straight to the
+   * reels, NO intro/splash click needed (unlike Wildies' game) → default
+   * bet €0.99 reduced to this game's €0.18 minimum by clicking "-" ~30
+   * times (no side-panel opens as a side effect, also unlike Wildies) →
+   * one spin click → balance dropped €100.00 → €99.82, confirming a real
+   * spin. The new Game History row only appeared after a page reload —
+   * a real backend/indexing delay, not a UI bug — so
+   * `verifyTranslation()`'s own Game History check must reload once
+   * before reading the table.
+   */
+  async spinFirstAvailableGame(): Promise<{ balanceBefore: string; balanceAfter: string }> {
+    return step('Launch the first available slot and place one real minimum-bet spin', async () => {
+      await this.dismissModalIfPresent();
+      const balanceBefore = await this.getBalanceText();
+
+      const gameLink = this.page.locator('a[href="/game/real/23929"]').first();
+      try {
+        await gameLink.click({ timeout: 8_000 });
+      } catch {
+        await this.dismissModalIfPresent();
+        await gameLink.click();
+      }
+      await this.page.waitForTimeout(10_000); // provider loading screen
+
+      await this.dismissModalIfPresent();
+
+      // Reduce the bet to this game's minimum via the "-" control.
+      for (let i = 0; i < 30; i++) {
+        await this.page.mouse.click(592, 735);
+        await this.page.waitForTimeout(150); // human-speed, not a rapid-fire click storm
+      }
+      await this.page.waitForTimeout(500);
+
+      await this.page.mouse.click(1055, 735); // spin
+      await this.page.waitForTimeout(6_000); // let the reels finish and the balance settle
+
+      await this.page.goto('/');
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.dismissModalIfPresent();
+      const balanceAfter = await this.getBalanceText();
+      return { balanceBefore, balanceAfter };
     });
   }
 
