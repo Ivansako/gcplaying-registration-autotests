@@ -45,15 +45,15 @@ import { recordIssue } from '../utils/issueTracker';
  * rendered (opaque canvas, no accessible DOM); a human scans the
  * screenshots to catch that specifically.
  */
-const GAMES_PER_PROVIDER = Number(process.env.SPINOLOCO_GAMES_PER_PROVIDER) || 1;
+const GAMES_PER_PROVIDER = Number(process.env.SPINOLOCO_GAMES_PER_PROVIDER) || 5;
 const CONCURRENCY = Number(process.env.SPINOLOCO_LAUNCH_CONCURRENCY) || 10;
 
 test.describe('spinoloco7545.com — Game Launch', () => {
   test.beforeEach(async () => {
-    allure.parentSuite('Spinoloco');
-    allure.subSuite('Provider Launch');
-    allure.epic('Spinoloco');
-    allure.feature('Provider Launch');
+    allure.parentSuite('Spinoloco — Provider Launch');
+    allure.suite('2. Game Launch Check');
+    allure.epic('Spinoloco — Provider Launch');
+    allure.feature('2. Game Launch Check');
     allure.owner('QA Automation');
   });
 
@@ -64,12 +64,15 @@ test.describe('spinoloco7545.com — Game Launch', () => {
       test.setTimeout(90 * 60_000);
       allure.severity('critical');
       allure.description(
-        `Launches ${GAMES_PER_PROVIDER} game(s) from EACH of the ~67 providers (today's rotating sample, not the ` +
-          `full catalog) across ${CONCURRENCY} concurrent tabs and confirms each game either reaches the ` +
-          'third-party iframe (playable, or the "Press anywhere to start" splash) or surfaces an explicit error — ' +
-          'a game that does neither within 30s is flagged as a launch failure. A screenshot is attached for every ' +
-          "game so a human can confirm the Spin/Play button actually rendered — that specific check can't be " +
-          'automated (opaque canvas, no accessible DOM).'
+        `What this checks, in plain terms: a real game should open and be playable — never leave the player ` +
+          `stuck on a geo-block message, a "500"/"Failed" error, or a blank/frozen screen instead of the slot ` +
+          `they clicked. How: launches ${GAMES_PER_PROVIDER} game(s) from EACH of the ~67 providers (today's ` +
+          `rotating sample, not the full catalog — see the class comment for why) across ${CONCURRENCY} ` +
+          'concurrent tabs and confirms each game either reaches the third-party iframe (playable, or the ' +
+          '"Press anywhere to start" splash) or surfaces an explicit error — a game that does neither within 30s ' +
+          'is flagged as a launch failure. A screenshot is attached for every game so a human can confirm the ' +
+          "Spin/Play button actually rendered — that specific check can't be automated (opaque canvas, no " +
+          'accessible DOM).'
       );
 
       const spinoloco = new SpinolocoPage(page);

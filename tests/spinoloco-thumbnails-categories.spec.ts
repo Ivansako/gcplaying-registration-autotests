@@ -30,20 +30,21 @@ import { recordIssue } from '../utils/issueTracker';
  */
 test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
   test.beforeEach(async () => {
-    allure.parentSuite('Spinoloco');
-    allure.subSuite('Provider Launch');
-    allure.epic('Spinoloco');
-    allure.feature('Provider Launch');
+    allure.parentSuite('Spinoloco — Provider Launch');
+    allure.epic('Spinoloco — Provider Launch');
     allure.owner('QA Automation');
   });
 
   test('Thumbnail check — every Casino & Live Casino game has a real image', { tag: ['@provider-launch'] }, async ({ page }) => {
     test.setTimeout(20 * 60_000);
+    allure.suite('1. Thumbnail Check');
+    allure.feature('1. Thumbnail Check');
     allure.severity('normal');
     allure.description(
-      'Loads the entire Slots and Live Casino catalogs (via "Wczytaj więcej" pagination) and forces every ' +
-        'thumbnail to load, flagging any whose image request never resolves to real pixel data — a stub, ' +
-        'not just a slow-loading placeholder.'
+      'What this checks, in plain terms: every game tile on the brand (both regular Casino slots and Live ' +
+        'Casino tables) must show its OWN real artwork, not a broken image or a generic placeholder. ' +
+        'How: loads the entire Slots and Live Casino catalogs (via "Wczytaj więcej" pagination) and forces every ' +
+        'thumbnail to actually load, flagging any whose image never resolves to real pixel data.'
     );
 
     const spinoloco = new SpinolocoPage(page);
@@ -53,12 +54,20 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
     let totalGames = 0;
     let cappedAny = false;
 
-    for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
-      await spinoloco[goTo]();
-      const { games, cappedOut } = await spinoloco.collectFullCatalog();
-      totalGames += games.length;
-      cappedAny = cappedAny || cappedOut;
-      broken.push(...(await spinoloco.findBrokenThumbnails()));
+    for (const [goTo, humanName] of [
+      ['goToSlots', 'Casino (Slots)'],
+      ['goToLiveCasino', 'Live Casino'],
+    ] as const) {
+      await test.step(`Scan every ${humanName} thumbnail for a real image`, async () => {
+        await spinoloco[goTo]();
+        const { games, cappedOut } = await spinoloco.collectFullCatalog();
+        totalGames += games.length;
+        cappedAny = cappedAny || cappedOut;
+        const brokenHere = await spinoloco.findBrokenThumbnails();
+        broken.push(...brokenHere);
+        allure.parameter(`${humanName} — games scanned`, String(games.length));
+        allure.parameter(`${humanName} — broken thumbnails found`, String(brokenHere.length));
+      });
     }
 
     allure.parameter('Total games scanned', String(totalGames));
@@ -95,31 +104,39 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
 
   test('Category check — every game is assigned at least one category', { tag: ['@provider-launch'] }, async ({ page }) => {
     test.setTimeout(20 * 60_000);
+    allure.suite('4. Category Check');
+    allure.feature('4. Category Check');
     allure.severity('normal');
     allure.description(
-      'Cross-references the full Slots + Live Casino catalog against every discoverable category listing ' +
+      'What this checks, in plain terms: every game must be filed under at least one real, browsable category ' +
+        '(e.g. Sweet Bonanza → Video Slots) — not just findable via the raw "all Slots"/"all Live" list — so a ' +
+        "player can actually discover it while browsing by genre, not only by scrolling the entire catalog. How: " +
+        'cross-references the full Slots + Live Casino catalog against every discoverable category listing ' +
         '("Zobacz wszystkie" sections) and flags any game that doesn\'t show up in at least one thematic ' +
-        'category — the umbrella "all Slots"/"all Live" listings themselves don\'t count, a game needs a ' +
-        'real genre placement to be findable, matching the brief\'s own example (Sweet Bonanza → Video Slots).'
+        'category — the umbrella "all Slots"/"all Live" listings themselves don\'t count toward this.'
     );
 
     const spinoloco = new SpinolocoPage(page);
     await spinoloco.open();
 
     const masterCatalog = new Map<string, GameEntry>();
-    for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
-      await spinoloco[goTo]();
-      const { games } = await spinoloco.collectFullCatalog();
-      for (const g of games) masterCatalog.set(gameKey(g), g);
-    }
-    allure.parameter('Total games in master catalog', String(masterCatalog.size));
+    await test.step('Collect the full Casino + Live Casino game list (the master list every game must appear in a category from)', async () => {
+      for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
+        await spinoloco[goTo]();
+        const { games } = await spinoloco.collectFullCatalog();
+        for (const g of games) masterCatalog.set(gameKey(g), g);
+      }
+      allure.parameter('Total games in master catalog', String(masterCatalog.size));
+    });
 
     const categorized = new Set<string>();
     const sections: Array<{ label: string; url: string }> = [];
-    for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
-      await spinoloco[goTo]();
-      sections.push(...(await spinoloco.getCategorySections()));
-    }
+    await test.step('Discover every browsable category ("Zobacz wszystkie" section) on the brand', async () => {
+      for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
+        await spinoloco[goTo]();
+        sections.push(...(await spinoloco.getCategorySections()));
+      }
+    });
     const seenLabels = new Set<string>();
     const uniqueSections = sections.filter((s) => {
       if (seenLabels.has(s.label) || !s.url) return false;
@@ -130,24 +147,26 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
 
     const brokenSections: string[] = [];
     const umbrellaSections: string[] = [];
-    for (const section of uniqueSections) {
-      try {
-        await page.goto(section.url);
-        await page.waitForLoadState('domcontentloaded');
-        const { games } = await spinoloco.collectFullCatalog();
-        // An "all Slots"/"all Live" umbrella listing doesn't count as a
-        // real thematic placement — see `isUmbrellaCategory()`'s own
-        // comment for why this is a coverage-ratio check, not a label
-        // match.
-        if (isUmbrellaCategory(games.length, masterCatalog.size)) {
-          umbrellaSections.push(section.label);
-          continue;
+    await test.step('Open every category and record which games it lists', async () => {
+      for (const section of uniqueSections) {
+        try {
+          await page.goto(section.url);
+          await page.waitForLoadState('domcontentloaded');
+          const { games } = await spinoloco.collectFullCatalog();
+          // An "all Slots"/"all Live" umbrella listing doesn't count as a
+          // real thematic placement — see `isUmbrellaCategory()`'s own
+          // comment for why this is a coverage-ratio check, not a label
+          // match.
+          if (isUmbrellaCategory(games.length, masterCatalog.size)) {
+            umbrellaSections.push(section.label);
+            continue;
+          }
+          for (const g of games) categorized.add(gameKey(g));
+        } catch {
+          brokenSections.push(section.label);
         }
-        for (const g of games) categorized.add(gameKey(g));
-      } catch {
-        brokenSections.push(section.label);
       }
-    }
+    });
     allure.parameter('Umbrella (excluded) sections', umbrellaSections.join(', ') || '(none)');
 
     const uncategorized = [...masterCatalog.values()].filter((g) => !categorized.has(gameKey(g)));

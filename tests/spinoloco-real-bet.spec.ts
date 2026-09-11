@@ -39,10 +39,10 @@ test.describe('spinoloco7545.com — Real Bet Placement', () => {
   test.use({ ...MOBILE_VIEWPORT });
 
   test.beforeEach(async () => {
-    allure.parentSuite('Spinoloco');
-    allure.subSuite('Provider Launch');
-    allure.epic('Spinoloco');
-    allure.feature('Provider Launch');
+    allure.parentSuite('Spinoloco — Provider Launch');
+    allure.suite('3. Real Bet Placement Check');
+    allure.epic('Spinoloco — Provider Launch');
+    allure.feature('3. Real Bet Placement Check');
     allure.owner('QA Automation');
   });
 
@@ -56,8 +56,10 @@ test.describe('spinoloco7545.com — Real Bet Placement', () => {
       test.skip(!account, `${index % 2 === 0 ? 'EUR' : 'PLN'} test account not configured`);
       allure.severity('critical');
       allure.description(
-        `Launches ${recipe.gamePath} (${providerName}) as the ${account!.currency} test account, reduces the bet ` +
-          'to its minimum, places one real spin, and confirms the balance actually changed.'
+        `What this checks, in plain terms: placing a real bet on this provider's game must go through cleanly, ` +
+          `with no extra error and a real balance change — not just "the game opened". How: launches ` +
+          `${recipe.gamePath} (${providerName}) as the ${account!.currency} test account, reduces the bet to its ` +
+          'minimum, places one real spin, and confirms the balance actually changed.'
       );
 
       const spinoloco = new SpinolocoPage(page);
@@ -90,8 +92,9 @@ test.describe('spinoloco7545.com — Real Bet Placement', () => {
     test.setTimeout(20 * 60_000);
     allure.severity('normal');
     allure.description(
-      'Compares the full game catalog\'s distinct provider list against `spinolocoBetCoordinates.ts` and reports ' +
-        'every provider still missing a confirmed real-bet recipe — informational, not a functional failure.'
+      "What this tracks, in plain terms: which of the ~67 providers still don't have a confirmed real-bet " +
+        'recipe yet — progress tracking for check #3, not a functional failure. How: compares the full game ' +
+        "catalog's distinct provider list against `spinolocoBetCoordinates.ts`."
     );
 
     const spinoloco = new SpinolocoPage(page);
