@@ -12,6 +12,9 @@ playwright-report-wildies/
 playwright-report-spinoloco/
 playwright-report-ferraplay/
 test-results/
+test-results-wildies/
+test-results-spinoloco/
+test-results-ferraplay/
 .env
 .claude/
 *-auth.json

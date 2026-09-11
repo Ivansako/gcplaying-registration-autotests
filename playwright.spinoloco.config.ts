@@ -6,10 +6,18 @@ import { defineConfig, devices } from '@playwright/test';
  * from gcplaying0175.com and beta.wildies.com, same reasoning as
  * `playwright.wildies.config.ts`: its own Allure results/report
  * directory rather than sharing either.
+ *
+ * `outputDir` is likewise its own — confirmed live 2026-09-11 that
+ * every brand config defaulted to the SAME `test-results/`, so running
+ * two brands' suites at once hit real file-lock conflicts and
+ * cross-contamination on that shared directory. Not applied to an
+ * already-running process — only takes effect on this config's NEXT
+ * invocation.
  */
 export default defineConfig({
   testDir: './tests',
   testMatch: /spinoloco-.*\.spec\.ts/,
+  outputDir: './test-results-spinoloco',
   timeout: 90_000,
   expect: {
     timeout: 10_000,

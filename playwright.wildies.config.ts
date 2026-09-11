@@ -9,10 +9,16 @@ import { defineConfig, devices } from '@playwright/test';
  * Suites tree need extra bookkeeping (numbered category prefixes) just to
  * keep them visually apart — a real separate config is simpler and scales
  * better once a third brand shows up.
+ *
+ * `outputDir` is likewise its own — confirmed live 2026-09-11 that
+ * every brand config defaulted to the SAME `test-results/`, so running
+ * two brands' suites at once hit real file-lock conflicts and
+ * cross-contamination on that shared directory.
  */
 export default defineConfig({
   testDir: './tests',
   testMatch: /wildies-.*\.spec\.ts/,
+  outputDir: './test-results-wildies',
   timeout: 45_000,
   expect: {
     timeout: 10_000,

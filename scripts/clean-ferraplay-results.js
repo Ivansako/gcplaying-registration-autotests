@@ -17,7 +17,12 @@
 const fs = require('fs');
 const path = require('path');
 
-const TARGETS = ['allure-results-ferraplay', 'allure-report-ferraplay', 'playwright-report-ferraplay', 'test-results'];
+// `test-results-ferraplay`, not the shared `test-results` — confirmed
+// live 2026-09-11 every brand config defaulted to that same shared
+// directory, so cleaning it here could rip out another brand's
+// in-progress run (hit this exact conflict with a concurrent Spinoloco
+// run). Each brand config now sets its own `outputDir`.
+const TARGETS = ['allure-results-ferraplay', 'allure-report-ferraplay', 'playwright-report-ferraplay', 'test-results-ferraplay'];
 
 for (const dir of TARGETS) {
   const full = path.join(__dirname, '..', dir);

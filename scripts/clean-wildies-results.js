@@ -17,7 +17,11 @@
 const fs = require('fs');
 const path = require('path');
 
-const TARGETS = ['allure-results-wildies', 'allure-report-wildies', 'playwright-report-wildies', 'test-results'];
+// `test-results-wildies`, not the shared `test-results` — confirmed
+// live 2026-09-11 every brand config defaulted to that same shared
+// directory, so cleaning it here could rip out another brand's
+// in-progress run. Each brand config now sets its own `outputDir`.
+const TARGETS = ['allure-results-wildies', 'allure-report-wildies', 'playwright-report-wildies', 'test-results-wildies'];
 
 for (const dir of TARGETS) {
   const full = path.join(__dirname, '..', dir);

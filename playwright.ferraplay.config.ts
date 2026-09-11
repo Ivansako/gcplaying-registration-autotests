@@ -5,10 +5,17 @@ import { defineConfig, devices } from '@playwright/test';
  * Separate Playwright config for ferraplay.com — same reasoning as
  * `playwright.wildies.config.ts`: a distinct brand gets its own
  * Allure results/report directory rather than sharing another brand's.
+ * `outputDir` (Playwright's own trace/video/screenshot dump, separate
+ * from Allure's `resultsDir`) is likewise its own — confirmed live
+ * 2026-09-11 that every brand config defaulted to the SAME
+ * `test-results/`, so running two brands' suites at once (e.g. this one
+ * and Spinoloco's) hit real file-lock conflicts and cross-contamination
+ * on that shared directory.
  */
 export default defineConfig({
   testDir: './tests',
   testMatch: /ferraplay-.*\.spec\.ts/,
+  outputDir: './test-results-ferraplay',
   timeout: 45_000,
   expect: {
     timeout: 10_000,
