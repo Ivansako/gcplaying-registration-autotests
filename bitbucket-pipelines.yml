@@ -1,0 +1,31 @@
+image: node:20
+
+# Fast diagnostic pipeline, NOT the full suite: screenshots
+# beta.wildies.com's Home page from a Bitbucket Pipelines runner, using
+# the same CF-Access service token the real Wildies suite uses, to check
+# whether this runner's IP hits the same "Not available in your
+# country" geo-block already confirmed for GitHub Actions
+# (see project memory: project-wildies-ci-geoblock-rootcause). If
+# Bitbucket's own IP range isn't geo-blocked, this could become a
+# working CI path for Wildies (and FerraPlay) instead of GitHub Actions.
+#
+# Requires CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET as Repository
+# variables (Repository settings -> Repository variables) - the exact
+# same names/values already used locally (.env) and in GitHub Secrets
+# for this same Wildies token; the diagnostic script reads those names
+# directly.
+
+definitions:
+  steps:
+    - step: &wildies-reachability-probe
+        name: Wildies reachability probe (Bitbucket runner IP)
+        script:
+          - npm ci
+          - npx playwright install --with-deps chromium
+          - node scripts/wildies-header-diagnostic.js
+        artifacts:
+          - diagnostic-*.png
+
+pipelines:
+  default:
+    - step: *wildies-reachability-probe
