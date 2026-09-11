@@ -101,7 +101,7 @@ export function selectShard<T>(items: T[], shardSize: number): { shard: T[]; sha
  * problem might not get checked for weeks. Real timing from this same
  * day's runs (60 games / 10 lanes ≈ 39 min including the one-time
  * catalog scrape) makes `perProvider` in the 1-3 range comfortably fit
- * a single day even on a slow network, while every one of the ~67
+ * a single day even on a slow network, while every one of the ~32
  * providers gets checked every run — this mirrors how large operators
  * actually do it (sample broadly + rely on production error-rate
  * monitoring for the long tail, not an exhaustive daily sweep of every

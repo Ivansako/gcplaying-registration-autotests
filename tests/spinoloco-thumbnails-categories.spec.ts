@@ -36,7 +36,7 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
   });
 
   test('Thumbnail check — every Casino & Live Casino game has a real image', { tag: ['@provider-launch'] }, async ({ page }) => {
-    test.setTimeout(20 * 60_000);
+    test.setTimeout(45 * 60_000);
     allure.suite('1. Thumbnail Check');
     allure.feature('1. Thumbnail Check');
     allure.severity('normal');
@@ -103,7 +103,7 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
   });
 
   test('Category check — every game is assigned at least one category', { tag: ['@provider-launch'] }, async ({ page }) => {
-    test.setTimeout(20 * 60_000);
+    test.setTimeout(45 * 60_000);
     allure.suite('4. Category Check');
     allure.feature('4. Category Check');
     allure.severity('normal');

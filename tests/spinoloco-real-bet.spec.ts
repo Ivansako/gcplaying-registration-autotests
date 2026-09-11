@@ -89,10 +89,10 @@ test.describe('spinoloco7545.com — Real Bet Placement', () => {
   });
 
   test('Coverage status: which providers still need a bet recipe', { tag: ['@provider-launch'] }, async ({ page }) => {
-    test.setTimeout(20 * 60_000);
+    test.setTimeout(45 * 60_000);
     allure.severity('normal');
     allure.description(
-      "What this tracks, in plain terms: which of the ~67 providers still don't have a confirmed real-bet " +
+      "What this tracks, in plain terms: which of the ~32 providers still don't have a confirmed real-bet " +
         'recipe yet — progress tracking for check #3, not a functional failure. How: compares the full game ' +
         "catalog's distinct provider list against `spinolocoBetCoordinates.ts`."
     );

@@ -12,7 +12,7 @@ import { recordIssue } from '../utils/issueTracker';
  *
  * Mobile-only (2026-09-08 decision — see `utils/deviceViewports.ts`).
  *
- * Samples `GAMES_PER_PROVIDER` games from EACH of the ~67 providers,
+ * Samples `GAMES_PER_PROVIDER` games from EACH of the ~32 providers,
  * rotating which specific games by calendar day (2026-09-09 decision,
  * replacing a flat slice of the whole ~4371+ game catalog — see
  * `spinolocoCatalog.ts`'s `sampleGamesByProvider()`) — a flat shard could
@@ -66,7 +66,7 @@ test.describe('spinoloco7545.com — Game Launch', () => {
       allure.description(
         `What this checks, in plain terms: a real game should open and be playable — never leave the player ` +
           `stuck on a geo-block message, a "500"/"Failed" error, or a blank/frozen screen instead of the slot ` +
-          `they clicked. How: launches ${GAMES_PER_PROVIDER} game(s) from EACH of the ~67 providers (today's ` +
+          `they clicked. How: launches ${GAMES_PER_PROVIDER} game(s) from EACH of the ~32 providers (today's ` +
           `rotating sample, not the full catalog — see the class comment for why) across ${CONCURRENCY} ` +
           'concurrent tabs and confirms each game either reaches the third-party iframe (playable, or the ' +
           '"Press anywhere to start" splash) or surfaces an explicit error — a game that does neither within 30s ' +
