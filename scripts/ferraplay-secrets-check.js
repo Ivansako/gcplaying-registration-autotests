@@ -1,17 +1,20 @@
 /**
  * Fast CI-only sanity check (NOT part of the suite): confirms
- * FERRAPLAY_TEST_USER_EMAIL/PASSWORD are actually populated as GitHub
- * Secrets and that account can really log in — a ~30s check instead of
- * waiting for the full ferraplay-i18n suite to find out the same thing.
- * Also screenshots the landing page before doing anything else, to catch
- * a geo/bot block (the same "Not available in your country" pattern
- * already confirmed for Wildies from GitHub Actions' IP) instead of
- * just reporting a confusing selector timeout.
+ * FERRAPLAY_TEST_USER_EMAIL/PASSWORD and FERRAPLAY_CF_ACCESS_CLIENT_ID/
+ * SECRET are actually populated as GitHub Secrets and that login really
+ * works — a ~30s check instead of waiting for the full ferraplay-i18n
+ * suite to find out the same thing. Also screenshots the landing page
+ * before doing anything else, to catch a geo/bot block or (confirmed
+ * live 2026-09-11, both from GitHub Actions AND a local machine) the
+ * site's own Cloudflare Access gate, instead of just reporting a
+ * confusing selector timeout.
  */
 const { chromium } = require('@playwright/test');
 
 const EMAIL = process.env.FERRAPLAY_TEST_USER_EMAIL;
 const PASSWORD = process.env.FERRAPLAY_TEST_USER_PASSWORD;
+const CF_ACCESS_CLIENT_ID = process.env.FERRAPLAY_CF_ACCESS_CLIENT_ID;
+const CF_ACCESS_CLIENT_SECRET = process.env.FERRAPLAY_CF_ACCESS_CLIENT_SECRET;
 
 (async () => {
   if (!EMAIL || !PASSWORD) {
@@ -19,9 +22,27 @@ const PASSWORD = process.env.FERRAPLAY_TEST_USER_PASSWORD;
     process.exit(1);
   }
   console.log(`Secrets present. Email: ${EMAIL.replace(/(?<=.{3}).(?=.*@)/g, '*')}`);
+  console.log(`CF Access token present: ${!!(CF_ACCESS_CLIENT_ID && CF_ACCESS_CLIENT_SECRET)}`);
 
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+
+  if (CF_ACCESS_CLIENT_ID && CF_ACCESS_CLIENT_SECRET) {
+    await page.route('**/*', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.hostname === 'ferraplay.com') {
+        await route.continue({
+          headers: {
+            ...route.request().headers(),
+            'CF-Access-Client-Id': CF_ACCESS_CLIENT_ID,
+            'CF-Access-Client-Secret': CF_ACCESS_CLIENT_SECRET,
+          },
+        });
+      } else {
+        await route.continue();
+      }
+    });
+  }
 
   const response = await page.goto('https://ferraplay.com/', { waitUntil: 'domcontentloaded', timeout: 30_000 });
   console.log(`Top-level response: ${response?.status()} ${response?.url()}`);

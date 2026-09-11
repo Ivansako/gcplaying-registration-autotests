@@ -1,5 +1,5 @@
 import { devices } from '@playwright/test';
-import { test, expect } from '../utils/testWithIssueAnalysis';
+import { test, expect } from '../utils/testWithFerraplayAuth';
 import { allure } from 'allure-playwright';
 import { FerraPlayPage } from '../pages/FerraPlayPage';
 import { EXISTING_LOCALES } from '../utils/ferraplayLocales';
