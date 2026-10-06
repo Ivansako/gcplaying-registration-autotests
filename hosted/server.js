@@ -137,12 +137,13 @@ const SUITES = [
     label: 'I18N Testing — FerraPlay',
     sub:
       'Checks language switching and translated content across every page — Home, Casino Lobby, Live Casino, Buy ' +
-      'Bonus, Sportsbook Lobby, Promotions, Tournaments, legal pages, Login/Sign Up, Forgot Password, the 404 ' +
-      'error boundary, the account menu, Cashier, Profile Info, Verification, My Promotions, Transaction ' +
-      'History, and Game History — on both desktop and mobile, for every language currently live on the site ' +
-      'except Nederlands and Français. Each run spends real money once, on the seed account below (one ' +
-      'minimum-bet slot spin). The sportsbook (/sport) isn\'t checked — it doesn\'t render any betting widget on ' +
-      'this brand.' +
+      'Bonus, Promotions, Tournaments (each tournament\'s own page), legal pages, Login/Sign Up, Forgot ' +
+      'Password, login error messages, the 404 error boundary, the account menu, the Loyalty/Missions ' +
+      'gamification widget (all sections plus a check that its level names are FerraPlay\'s own), Cashier, ' +
+      'Profile Info, Verification, My Promotions, Transaction History, and Game History — on both desktop and ' +
+      'mobile, for English, Italiano, Português, Ελληνικά, Español, Polski, Magyar and Français (Nederlands is ' +
+      'deliberately not covered). Each run spends real money once, on the seed account below (one ' +
+      'minimum-bet slot spin). This brand has no sportsbook, so none is checked.' +
       '<br><br><strong>Test accounts:</strong><br>' +
       'wiztest+zest1@gmail.com / Wiztestzest1 — seed account, the one real money moves through<br>' +
       'wiztest+kak1@gmail.com / Wiztestkak1<br>' +

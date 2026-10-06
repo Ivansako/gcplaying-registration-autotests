@@ -12,9 +12,14 @@
  *
  * Confirmed live 2026-09-10: the dropdown actually lists 9 locales
  * (adds Nederlands and Français to the 7 below). Per explicit request,
- * this suite deliberately excludes Nederlands and Français — if that
- * scope ever changes, re-add them here from `getAvailableLocaleLabels()`
- * output rather than guessing codes.
+ * this suite originally deliberately excluded Nederlands and Français.
+ *
+ * **2026-09-18 (BQA-461)**: French added back in per that ticket's
+ * explicit Definition of Done ("7 languages: IT PT GR ES PL HU FR"),
+ * which directly asked for French coverage. Nederlands stays excluded —
+ * the ticket doesn't ask for it, and the user confirmed it should stay
+ * out. If Nederlands scope ever changes, re-add it here from
+ * `getAvailableLocaleLabels()` output rather than guessing codes.
  */
 export interface FerraplayLocale {
   label: string;
@@ -30,6 +35,7 @@ export const EXISTING_LOCALES: FerraplayLocale[] = [
   { label: 'Español', code: 'es', path: 'es' },
   { label: 'Polski', code: 'pl', path: 'pl' },
   { label: 'Magyar', code: 'hu', path: 'hu' },
+  { label: 'Français', code: 'fr', path: 'fr' },
 ];
 
 /** Every locale the site's own switcher currently offers — used only by

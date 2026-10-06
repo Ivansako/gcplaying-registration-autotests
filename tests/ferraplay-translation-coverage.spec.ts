@@ -61,15 +61,15 @@ async function loginWithFallback(ferraplayPage: FerraPlayPage, account: Ferrapla
  * `BRAND_NAME_BUG_STRING` below since it isn't an English-fallback case.
  *
  * NOT yet built (documented gaps, not silent coverage):
- *  - Sportsbook — NOT covered at all. Confirmed live 2026-09-10 the
- *    `/sport` page renders a blank content area even logged in (no
- *    odds widget iframe, unlike Wildies' genuinely re-embedding
- *    `88wplay` widget) — no real bet is placed, no "Sportsbook My Bets"
- *    check exists. Re-investigate if the widget ever starts rendering.
+ *  - Sportsbook — NOT covered at all, and per the user (2026-09-18,
+ *    BQA-461) never will be: this brand won't ship a sportsbook. Confirmed
+ *    live 2026-09-10 the `/sport` page rendered a blank content area even
+ *    logged in (no odds widget iframe, unlike Wildies' genuinely
+ *    re-embedding `88wplay` widget) — that was already a sign, now
+ *    confirmed as permanent scope, so `/sport` isn't visited at all
+ *    (removed from `ANONYMOUS_PAGES`, not just left without a baseline).
  *  - "Duplicate email" registration check uses a real account's email
  *    (`SEED_ACCOUNT`), same as Wildies.
- *  - FerraPlay's own "Loyalty"/"Missions" nav items — distinct features
- *    from Wildies' Smartico "Match X" widget, not investigated at all.
  */
 
 const ANONYMOUS_PAGES = [
@@ -77,7 +77,6 @@ const ANONYMOUS_PAGES = [
   { path: '/casino', name: 'Casino Lobby' },
   { path: '/live-casino', name: 'Live Casino' },
   { path: '/buy_bonus', name: 'Buy Bonus' },
-  { path: '/sport', name: 'Sportsbook Lobby' },
   { path: '/faq', name: 'FAQ' },
   { path: '/contact-us', name: 'Contact Us' },
   { path: '/terms-and-conditions', name: 'Terms and Conditions' },
@@ -93,10 +92,9 @@ const ANONYMOUS_PAGES = [
  * class-level comment above for the one real bug this surfaced:
  * Casino Lobby's "TOP GAMES", deliberately kept in the list).
  *
- * "Buy Bonus" and "Sportsbook Lobby" have no entry: Buy Bonus's own
- * content is too thin/generic to build a safe baseline from, and
- * Sportsbook Lobby renders a blank content area in this environment
- * (nothing stable to check).
+ * "Buy Bonus" has no entry: its own content is too thin/generic to
+ * build a safe baseline from. Sportsbook Lobby isn't in
+ * `ANONYMOUS_PAGES` at all — see the class-level comment above.
  */
 const PAGE_ENGLISH_BASELINES: Record<string, string[]> = {
   Home: ['TOP GAMES', 'POPULAR GAMES', 'PROVIDERS', 'NEW GAMES', 'LIVE GAMES', 'ALL GAMES'],
@@ -123,6 +121,24 @@ const PAGE_ENGLISH_BASELINES: Record<string, string[]> = {
  * the page text rather than via `scanForEnglishFallback()`.
  */
 const BRAND_NAME_BUG_STRING = 'Shelbyspin';
+
+/**
+ * Brand-identity regression guard for the "Loyalty" gamification widget's
+ * Levels tab, same reasoning as Wildies' `WILDIES_LEVEL_NAMES` — a past
+ * incident on the shared platform saw a locale rollout pull level names
+ * from a DIFFERENT brand. Confirmed live 2026-09-18: 8 real names, same
+ * count as Wildies' own 8, product-specific and not meant to translate.
+ */
+const FERRAPLAY_LEVEL_NAMES = [
+  'Dreamer 1',
+  'Dreamer 2',
+  'Dreamer 3',
+  'Dreamer 4',
+  'Believer 1',
+  'Achiever 1',
+  'Elite 1',
+  'Loyalty',
+];
 
 // Confirmed live 2026-09-10 by opening the avatar menu while logged in.
 const AUTHENTICATED_PAGES = [
@@ -446,6 +462,77 @@ test.describe('ferraplay.com — translation coverage', () => {
                   'Transaction History, Log out)',
               ],
               modalFlagged
+            );
+          });
+        }
+      });
+
+      test.describe('Gamification (Loyalty)', () => {
+        test.skip(!hasCreds, 'No FerraPlay test accounts configured');
+
+        for (const locale of EXISTING_LOCALES) {
+          test(`Gamification — ${locale.label}`, { tag: ['@localization', '@translation', '@auth'] }, async ({ page }) => {
+            // Bumped from 90s (2026-09-18): openGamificationWidget()'s two
+            // bounded 5-attempt Finances-modal retry loops (see its own
+            // comment) can, in the worst case confirmed live on Mobile
+            // Português, eat most of a 90s budget on their own before the
+            // widget itself is even scanned.
+            test.setTimeout(120_000);
+            allure.subSuite('Gamification');
+            allure.severity('normal');
+
+            const ferraplayPage = new FerraPlayPage(page);
+            const account = nextPooledAccount();
+            await ferraplayPage.open(locale.path);
+            await loginWithFallback(ferraplayPage, account);
+            const modalFlagged = ferraplayPage.takePendingModalFindings();
+            await ferraplayPage.openGamificationWidget();
+
+            // 5 sections: Overview, Missions, Levels, Store, Inbox — see
+            // `openGamificationSection()`'s comment for why this is
+            // position-based. Missions and Store each have their own inner
+            // sub-tabs; Overview and Inbox don't, `gamificationSubTabCount()`
+            // is just 0 for those.
+            const frameFlagged: string[] = [];
+            const pushUnique = (findings: string[]) => {
+              for (const f of findings) if (!frameFlagged.includes(f)) frameFlagged.push(f);
+            };
+            for (let section = 0; section < 5; section++) {
+              await ferraplayPage.openGamificationSection(section);
+              pushUnique(await ferraplayPage.scanFrameForUntranslatedText(ferraplayPage.gamificationFrame));
+              if (section === 2) {
+                // Levels — brand-identity regression guard, see
+                // `FERRAPLAY_LEVEL_NAMES`'s own comment.
+                const levelsText = await ferraplayPage.gamificationFrame.locator('body').innerText();
+                const missingLevels = FERRAPLAY_LEVEL_NAMES.filter((name) => !levelsText.includes(name));
+                pushUnique(
+                  missingLevels.map(
+                    (name) =>
+                      `Levels tab is missing the expected level "${name}" — either broken or showing a ` +
+                      "different brand's levels instead of FerraPlay's own"
+                  )
+                );
+              }
+              const subTabCount = await ferraplayPage.gamificationSubTabCount();
+              for (let sub = 0; sub < subTabCount; sub++) {
+                await ferraplayPage.openGamificationSubTab(sub);
+                pushUnique(await ferraplayPage.scanFrameForUntranslatedText(ferraplayPage.gamificationFrame));
+              }
+            }
+
+            await ferraplayPage.captureScreenshot(`Gamification — ${locale.label} (${viewportName})`, {
+              fullPage: false,
+            });
+            await ferraplayPage.verifyTranslation(
+              `Gamification (${locale.label}, logged in, ${viewportName})`,
+              [
+                'The "Loyalty" gamification widget\'s Overview/Missions/Levels/Store/Inbox sections and each ' +
+                  "section's own sub-tabs — scanned for broken/leaking raw keys. Unlike Wildies' equivalent " +
+                  "widget, this one DOES follow the site's own locale (confirmed live 2026-09-18), so a " +
+                  'leaked English string here is a real, locale-specific finding. Inbox\'s own inner ' +
+                  'categories are not drilled into.',
+              ],
+              [...modalFlagged, ...frameFlagged]
             );
           });
         }

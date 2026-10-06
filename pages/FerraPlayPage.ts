@@ -1,4 +1,4 @@
-import { expect, Locator, Page } from '@playwright/test';
+import { expect, FrameLocator, Locator, Page } from '@playwright/test';
 import { attachment, descriptionHtml, step } from 'allure-js-commons';
 import { ContentType } from 'allure-js-commons';
 import { recordIssue } from '../utils/issueTracker';
@@ -202,7 +202,16 @@ export class FerraPlayPage {
       try {
         await emailInput.waitFor({ timeout: 3_000 });
       } catch {
-        await headerButtons.first().click();
+        // Confirmed live 2026-09-21: blindly re-clicking here assumed the
+        // FIRST click never registered, but the real cause was just a
+        // slow-rendering modal — the modal WAS open, its own overlay then
+        // intercepted this second click on the (now-covered) header
+        // button, turning a slow render into a hard timeout. Only
+        // re-click if the modal genuinely isn't open yet.
+        const modalOpen = await this.page.locator('[data-modal-overlay="true"]').isVisible().catch(() => false);
+        if (!modalOpen) {
+          await headerButtons.first().click();
+        }
         await emailInput.waitFor({ timeout: 10_000 });
       }
       await emailInput.fill(email);
@@ -406,12 +415,33 @@ export class FerraPlayPage {
       try {
         await overlay.waitFor({ timeout: 4_000 });
       } catch {
-        await headerButtons.first().click();
+        // Same fix as `login()`/`expectLoginFailure()` — only re-click if
+        // the overlay genuinely isn't there yet, not just slow to finish
+        // its own render.
+        const modalOpen = await overlay.isVisible().catch(() => false);
+        if (!modalOpen) {
+          await headerButtons.first().click();
+        }
         await overlay.waitFor({ timeout: 10_000 });
       }
       if (tab === 'register') {
-        await overlay.locator('[data-modal-body="true"] button').first().click();
-        await expect(this.page.locator('input[name="email"]')).toBeVisible({ timeout: 5_000 });
+        const registerTabButton = overlay.locator('[data-modal-body="true"] button').first();
+        const emailInput = this.page.locator('input[name="email"]');
+        await registerTabButton.click();
+        try {
+          await expect(emailInput).toBeVisible({ timeout: 8_000 });
+        } catch {
+          // Same class of fix as the header-button clicks above: only
+          // re-click the tab if the Login form is still showing (the
+          // tab switch genuinely didn't register), not just because the
+          // Sign Up form is slow to render — confirmed live 2026-09-22
+          // this tab switch can occasionally take longer than 5s.
+          const stillOnLogin = await registerTabButton.isVisible().catch(() => false);
+          if (stillOnLogin) {
+            await registerTabButton.click();
+          }
+          await expect(emailInput).toBeVisible({ timeout: 10_000 });
+        }
       }
     });
   }
@@ -431,13 +461,22 @@ export class FerraPlayPage {
   async openForgotPasswordForm(): Promise<void> {
     await step('Open the Forgot Password form', async () => {
       await this.openAuthModal('login');
-      const forgotButton = this.page.locator('[data-modal-overlay="true"] form[type="Login"] button[type="button"]').first();
+      const loginForm = this.page.locator('[data-modal-overlay="true"] form[type="Login"]');
+      const forgotButton = loginForm.locator('button[type="button"]').first();
       const emailField = this.page.locator('[data-modal-overlay="true"] #email');
       await forgotButton.click();
       try {
         await expect(emailField).toBeVisible({ timeout: 5_000 });
       } catch {
-        await forgotButton.click();
+        // Same fix as `expectLoginFailure()`/`login()`/`openAuthModal()`:
+        // if the Login form is already gone, the first click DID register
+        // (the modal is mid-transition to the Forgot Password form) and
+        // clicking again hits a stale/replaced element instead of just
+        // waiting a bit longer for the real render.
+        const stillOnLoginForm = await loginForm.isVisible().catch(() => false);
+        if (stillOnLoginForm) {
+          await forgotButton.click();
+        }
         await expect(emailField).toBeVisible({ timeout: 10_000 });
       }
     });
@@ -488,7 +527,16 @@ export class FerraPlayPage {
       try {
         await emailInput.waitFor({ timeout: 3_000 });
       } catch {
-        await headerButtons.first().click();
+        // Confirmed live 2026-09-21: blindly re-clicking here assumed the
+        // FIRST click never registered, but the real cause was just a
+        // slow-rendering modal — the modal WAS open, its own overlay then
+        // intercepted this second click on the (now-covered) header
+        // button, turning a slow render into a hard timeout. Only
+        // re-click if the modal genuinely isn't open yet.
+        const modalOpen = await this.page.locator('[data-modal-overlay="true"]').isVisible().catch(() => false);
+        if (!modalOpen) {
+          await headerButtons.first().click();
+        }
         await emailInput.waitFor({ timeout: 10_000 });
       }
       await emailInput.fill(email);
@@ -795,5 +843,132 @@ export class FerraPlayPage {
       }
       return { found, opened, flagged };
     });
+  }
+
+  /**
+   * The "Loyalty"/"Missions" gamification widget — same third-party
+   * vendor iframe as Wildies' "Match X" (`Achievements3.html`, confirmed
+   * live 2026-09-18: identical internal structure — 5 `.menu-item`
+   * sections "Overview/Missions/Levels/Store/Inbox", same
+   * `.close-button-wrapper .close-button`, same `.tabs-container
+   * .tab-container` sub-tab pattern — just a different `bridgeId` query
+   * param and reskinned rank names). UNLIKE Wildies' widget, this one
+   * DOES follow the site's current locale (confirmed live: switching to
+   * Français translated every section label — "Overview"→"Vue
+   * d'ensemble", "Levels"→"Niveaux", etc. — while the rank names
+   * themselves stayed as literal product names, same as Wildies' rank
+   * names). Still scanned only for broken/leaking raw keys here (not a
+   * per-locale exact-text diff) to match this suite's established,
+   * conservative widget-checking approach.
+   */
+  get gamificationFrame(): FrameLocator {
+    return this.page.frameLocator('iframe[src*="Achievements3.html"]');
+  }
+
+  /**
+   * Opens the sidebar's "Loyalty" button. Position-based (first of the
+   * two `span[role="button"][tabindex="0"]` items in the sidebar list,
+   * "Loyalty" then "Missions") rather than by text — confirmed live
+   * 2026-09-18 this label itself translates ("Loyalty"→"Fidélité" in
+   * Français), so a hardcoded English string wouldn't survive other
+   * locales. Both "Loyalty" and "Missions" open the same widget (just
+   * whatever section it last showed), so only one entry point is needed.
+   */
+  async openGamificationWidget(): Promise<void> {
+    await step('Open the gamification (Loyalty) widget', async () => {
+      // Confirmed live 2026-09-18: the "Finances" zero-balance popup
+      // Wildies already documents doesn't just reappear once here — on
+      // at least one account it kept re-triggering across many seconds,
+      // blocking the side-menu toggle every time. A single dismiss-and-
+      // retry (Wildies' own pattern) wasn't enough; use the same bounded
+      // 5-attempt loop `openAccountMenu()` already relies on for this
+      // exact race, rather than a one-shot retry that can still lose.
+      let sideMenuOpen = false;
+      for (let attempt = 0; attempt < 5 && !sideMenuOpen; attempt++) {
+        await this.dismissModalIfPresent();
+        try {
+          await this.openSideMenu();
+          sideMenuOpen = true;
+        } catch {
+          // Loop again — a fresh dismiss + open attempt.
+        }
+      }
+      if (!sideMenuOpen) {
+        await this.dismissModalIfPresent();
+        await this.openSideMenu();
+      }
+
+      const loyaltyButton = this.page.locator('aside span[role="button"][tabindex="0"]').first();
+      const widgetIframe = this.page.locator('iframe[src*="Achievements3.html"]');
+      let opened = false;
+      for (let attempt = 0; attempt < 5 && !opened; attempt++) {
+        // Confirmed live 2026-09-21: a previous attempt's click can
+        // genuinely succeed (the widget's iframe is already there) while
+        // its OWN content just takes longer than expected to load — in
+        // that case the widget's iframe sits on top of the sidebar and
+        // blocks a repeat click on `loyaltyButton`, turning "still
+        // loading" into a hard "intercepts pointer events" failure. Only
+        // click again if the widget genuinely isn't open yet; if it is,
+        // just keep waiting on its content instead.
+        const alreadyOpen = (await widgetIframe.count()) > 0;
+        if (!alreadyOpen) {
+          await this.dismissModalIfPresent();
+          try {
+            await loyaltyButton.click({ timeout: 5_000 });
+          } catch {
+            continue;
+          }
+        }
+        try {
+          await this.gamificationFrame.locator('.menu-item').first().waitFor({ timeout: 15_000 });
+          opened = true;
+        } catch {
+          // Loop again — either the click above didn't register, or the
+          // widget is open but still loading its own content.
+        }
+      }
+      if (!opened) {
+        await this.gamificationFrame.locator('.menu-item').first().waitFor({ timeout: 20_000 });
+      }
+    });
+  }
+
+  async closeGamificationWidget(): Promise<void> {
+    await step('Close the gamification widget', async () => {
+      await this.gamificationFrame.locator('.close-button-wrapper .close-button').click();
+    });
+  }
+
+  /** Same DOM-position reasoning as Wildies' identical method — see there. */
+  async openGamificationSection(index: number): Promise<void> {
+    await step(`Open gamification section #${index}`, async () => {
+      if ((this.page.viewportSize()?.width ?? 1280) < 700) {
+        await this.gamificationFrame.locator('.header-menu').click().catch(() => {});
+        await this.page.waitForTimeout(300);
+      }
+      await this.gamificationFrame.locator('.menu-item').nth(index).click();
+      await this.page.waitForTimeout(1_500);
+    });
+  }
+
+  async gamificationSubTabCount(): Promise<number> {
+    return this.gamificationFrame.locator('.tabs-container .tab-container').count();
+  }
+
+  async openGamificationSubTab(index: number): Promise<void> {
+    await step(`Open gamification sub-tab #${index}`, async () => {
+      await this.gamificationFrame.locator('.tabs-container .tab-container').nth(index).click();
+      await this.page.waitForTimeout(1_000);
+    });
+  }
+
+  /**
+   * Frame-scoped variant of `scanForUntranslatedText()` — same reasoning
+   * as Wildies' identical method (must run inside the iframe's own
+   * execution context; a parent-page `evaluate()` can't reach across the
+   * cross-origin boundary).
+   */
+  async scanFrameForUntranslatedText(frame: FrameLocator): Promise<string[]> {
+    return frame.locator('body').evaluate(FerraPlayPage.untranslatedTextScanner);
   }
 }

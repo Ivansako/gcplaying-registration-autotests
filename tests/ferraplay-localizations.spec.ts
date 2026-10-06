@@ -7,10 +7,11 @@ import { EXISTING_LOCALES } from '../utils/ferraplayLocales';
  * ferraplay.com — locale switcher mechanics (URL scheme, dropdown
  * options, `<html lang>` updates). Direct port of
  * `wildies-localizations.spec.ts` — confirmed live 2026-09-10 the same
- * underlying platform and switcher mechanics. Covers the 7 locales this
- * suite is scoped to (see `ferraplayLocales.ts`) — Nederlands and
- * Français are excluded per explicit request even though the site
- * itself offers them.
+ * underlying platform and switcher mechanics. Covers the 8 locales this
+ * suite is scoped to (see `ferraplayLocales.ts`) — Nederlands is
+ * excluded per explicit request even though the site itself offers it.
+ * Français was excluded too until BQA-461 (2026-09-18) explicitly asked
+ * for it; now included.
  *
  * Site-wide translation *completeness* is a separate concern — see
  * `tests/ferraplay-translation-coverage.spec.ts`.

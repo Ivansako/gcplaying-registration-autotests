@@ -16,9 +16,16 @@ export default defineConfig({
   testDir: './tests',
   testMatch: /ferraplay-.*\.spec\.ts/,
   outputDir: './test-results-ferraplay',
-  timeout: 45_000,
+  // Bumped from 45s/15s/10s (2026-09-21): recurring runs kept mixing
+  // genuine translation findings with plain automation timeouts on
+  // otherwise-normal page/modal transitions — per the user, those aren't
+  // useful noise to sift through every time. More headroom here doesn't
+  // hide a real hang (nothing in this suite depends on a slow response
+  // meaning "broken"), it just stops transient slowness from reading as
+  // a false failure.
+  timeout: 60_000,
   expect: {
-    timeout: 10_000,
+    timeout: 12_000,
   },
   // Same reasoning as `playwright.wildies.config.ts`: pinned to 1
   // worker, not left to CI-only auto-parallel, since the locale
@@ -54,8 +61,8 @@ export default defineConfig({
     // assertion that can fail.
     screenshot: 'off',
     video: 'retain-on-failure',
-    actionTimeout: 15_000,
-    navigationTimeout: 30_000,
+    actionTimeout: 20_000,
+    navigationTimeout: 35_000,
   },
 
   // Chromium only — same repo-wide policy as every other suite.
