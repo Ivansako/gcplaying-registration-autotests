@@ -22,7 +22,10 @@ export interface WildiesLocale {
 // Swedish | Norwegian languages to the Drop Down" ticket turned out to
 // match the real dropdown exactly. Norwegian, the 5th language from that
 // same ticket, was confirmed 2026-09-02 to not be shipping — dropped
-// rather than kept as a permanently-skipping placeholder.
+// rather than kept as a permanently-skipping placeholder. Deutsch was
+// dropped the same way per the user's decision (agreed before
+// 2026-09-16, /de now 404s on the live site) — removed entirely rather
+// than kept as a permanently-failing placeholder.
 export const EXISTING_LOCALES: WildiesLocale[] = [
   { label: 'English', code: 'en', path: 'en' },
   { label: 'Nederlands', code: 'nl', path: 'nl' },
@@ -30,7 +33,6 @@ export const EXISTING_LOCALES: WildiesLocale[] = [
   { label: 'Italiano', code: 'it', path: 'it' },
   { label: 'Português', code: 'pt', path: 'pt' },
   { label: 'Ελληνικά', code: 'el', path: 'el' },
-  { label: 'Deutsch', code: 'de', path: 'de' },
   { label: 'Suomi', code: 'fi', path: 'fi' },
   { label: 'Español', code: 'es', path: 'es' },
   { label: 'Svenska', code: 'sv', path: 'sv' },
