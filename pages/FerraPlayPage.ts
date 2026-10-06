@@ -59,10 +59,32 @@ export class FerraPlayPage {
     this.langSwitcherPanel = page.locator('[data-sidemenu="lang-switcher"]');
   }
 
+  /**
+   * English is the un-prefixed default ("/"), and a cold visit to the bare
+   * root is language-resolved by the site (geo-IP) rather than always
+   * English — confirmed live 2026-10-06: a full run's "— English" checks
+   * (screenshots included) were silently running on Portuguese, while a
+   * cold visit minutes later landed on English. Every "English" check was
+   * therefore only as English as whatever the exit IP happened to resolve
+   * to that day, and passed regardless because English has no baseline
+   * scan. The site honours the standard Next.js `NEXT_LOCALE` cookie over
+   * that resolution (confirmed live: `pt`→/pt, `fr`→/fr, `en`→/), so pin it
+   * before any bare-path visit.
+   */
+  private async pinEnglish(): Promise<void> {
+    await this.page.context().addCookies([{ name: 'NEXT_LOCALE', value: 'en', domain: 'ferraplay.com', path: '/' }]);
+  }
+
   async open(localeSegment = ''): Promise<void> {
     await step(`Open ferraplay.com${localeSegment ? '/' + localeSegment : ''}`, async () => {
+      if (!localeSegment) await this.pinEnglish();
       await this.page.goto(`/${localeSegment}`);
       await this.page.waitForLoadState('domcontentloaded');
+      if (!localeSegment) {
+        // Fail loudly rather than let an "English" check run on another language.
+        const lang = await this.getCurrentLocale();
+        expect(lang, 'The English (bare "/") visit must actually render English').toBe('en');
+      }
     });
   }
 
@@ -74,6 +96,7 @@ export class FerraPlayPage {
   async visitPage(path: string, localeSegment = ''): Promise<void> {
     const url = localeSegment ? `/${localeSegment}${path}` : path;
     await step(`Open ${url}`, async () => {
+      if (!localeSegment) await this.pinEnglish();
       await this.page.goto(url);
       await this.page.waitForLoadState('domcontentloaded');
     });
@@ -82,6 +105,7 @@ export class FerraPlayPage {
   async visitNonExistentPage(localeSegment = ''): Promise<void> {
     await step('Open a non-existent page (checks the error boundary)', async () => {
       const url = localeSegment ? `/${localeSegment}/this-page-does-not-exist-xyz` : '/this-page-does-not-exist-xyz';
+      if (!localeSegment) await this.pinEnglish();
       await this.page.goto(url);
       await this.page.waitForLoadState('domcontentloaded');
       await this.page.waitForTimeout(1_500);

@@ -68,9 +68,10 @@ test.describe('ferraplay.com — locale switching', () => {
 
   test.describe('Switch via the sidebar dropdown', () => {
     // Includes English here (unlike the direct-URL loop above) — the
-    // dropdown switch is a client-side route change, confirmed live to
-    // correctly land on English regardless of the environment's
-    // geo-detected default.
+    // dropdown switch is a client-side route change. `open()` now pins the
+    // bare "/" to English, so each switch starts from a DIFFERENT, explicit
+    // locale ("/it", or "/pt" when the target is Italiano) — otherwise
+    // selecting English would be a no-op from an already-English page.
     for (const locale of EXISTING_LOCALES) {
       test(`Selecting "${locale.label}" navigates and updates <html lang>`, { tag: ['@localization'] }, async ({ page }) => {
         allure.severity('normal');
@@ -80,7 +81,7 @@ test.describe('ferraplay.com — locale switching', () => {
         );
 
         const ferraplayPage = new FerraPlayPage(page);
-        await ferraplayPage.open();
+        await ferraplayPage.open(locale.code === 'it' ? 'pt' : 'it');
         const lang = await ferraplayPage.switchLocale(locale.label);
         expect(lang).toBe(locale.code);
         await ferraplayPage.captureScreenshot(`${locale.label} — via dropdown`);
