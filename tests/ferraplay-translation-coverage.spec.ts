@@ -77,6 +77,14 @@ const ANONYMOUS_PAGES = [
   { path: '/casino', name: 'Casino Lobby' },
   { path: '/live-casino', name: 'Live Casino' },
   { path: '/buy_bonus', name: 'Buy Bonus' },
+  // Wildies scans its Tournaments LISTING as its own page; FerraPlay only
+  // visited it inside the per-tournament details block, whose final scanned
+  // page is a detail page — so the listing itself was never scanned.
+  { path: '/tournaments', name: 'Tournaments' },
+  // Found by the 2026-10-07 site walk: a provider landing page reached from
+  // a hero banner ("INOUT JUST JOINED"), and the providers index.
+  { path: '/inout_games', name: 'Provider page (Inout)' },
+  { path: '/providers', name: 'Providers' },
   { path: '/faq', name: 'FAQ' },
   { path: '/contact-us', name: 'Contact Us' },
   { path: '/terms-and-conditions', name: 'Terms and Conditions' },
@@ -97,11 +105,53 @@ const ANONYMOUS_PAGES = [
  * `ANONYMOUS_PAGES` at all — see the class-level comment above.
  */
 const PAGE_ENGLISH_BASELINES: Record<string, string[]> = {
-  Home: ['TOP GAMES', 'POPULAR GAMES', 'PROVIDERS', 'NEW GAMES', 'LIVE GAMES', 'ALL GAMES'],
+  Home: [
+    'TOP GAMES',
+    'POPULAR GAMES',
+    'PROVIDERS',
+    'NEW GAMES',
+    'LIVE GAMES',
+    'ALL GAMES',
+    // Category pill ("Top Games", mixed case — distinct from the all-caps
+    // section header above). Confirmed live 2026-10-07 stuck in English on
+    // Français only; it had been translated ("Meilleurs Jeux") on 2026-09-22.
+    'Top Games',
+    // Hero/promo banners — added 2026-10-07: the old baselines only covered
+    // section headers, so a banner left in English was invisible to the suite
+    // (a Wildies manual pass found exactly such banner defects). Every phrase
+    // below was verified absent from ALL 7 non-English locales' text, so it
+    // can only appear there as an untranslated fallback. Banners are CMS
+    // content that rotates: a phrase whose banner is later retired just stops
+    // matching (harmless), never false-flags. Banners are shared chrome across
+    // pages, so they're checked here ONCE — not per page — to avoid the
+    // one-bug-many-red-tests cascade (see the Wildies footer incident).
+    'HACKSAW HAS ARRIVED!',
+    'TRY YOUR LUCK TODAY',
+    'INOUT JUST JOINED.',
+    'FIRST DEPOSIT BONUS',
+    'MONDAY CASHBACK',
+    'WEEKEND POWER RELOAD',
+    'Level up your points balance and unlock exclusive rewards!',
+    'Enjoy the feeling of a reward with every single bet',
+    // Real finding, kept on purpose: the "Mission Control" banner title is
+    // left in English on Italiano and Français (translated in the others,
+    // e.g. Magyar "Küldetésközpont") — confirmed live 2026-10-07.
+    'Mission Control',
+  ],
   'Casino Lobby': ['Casino Lobby', 'Instant Wins', 'Scratch Cards', 'TOP GAMES'],
   'Live Casino': ['Live Lobby', 'High stakes'],
-  FAQ: ['How to register?', 'I have forgotten my password'],
-  'Contact Us': ['do not hesitate to click on the small window'],
+  // FAQ/Contact Us baselines were STALE (found 2026-10-07): the site moved
+  // the FAQ questions to Title Case and reworded Contact Us, so the old
+  // phrases matched nothing and both pages were silently unchecked.
+  FAQ: [
+    'How to Register?',
+    'I Have Forgotten My Password',
+    'How Can I Close My Account?',
+    'How Can I Set Deposit Limits?',
+    'DEPOSITS AND WITHDRAWALS',
+  ],
+  'Contact Us': ['team is ready to assist you anytime'],
+  Tournaments: ['Monthly Tournament'],
   'Terms and Conditions': ['TERMS AND CONDITIONS', 'GENERAL TERMS'],
   'Privacy Policy': ['PRIVACY POLICY', 'the lawful bases for such processing'],
   'AML-KYC Policy': [
@@ -110,6 +160,23 @@ const PAGE_ENGLISH_BASELINES: Record<string, string[]> = {
   ],
   'Responsible Gambling': ['RESPONSIBLE GAMING POLICY', 'Avoid chasing losses'],
 };
+
+/**
+ * Promotion card titles on `/promotions` (CMS content, verified 2026-10-07 to
+ * appear in NONE of the 7 non-English locales' text except the two real
+ * findings kept on purpose: "INSURANCE FEVER" is left in English on
+ * Ελληνικά and Magyar (Polski translates it), and "77 FREE SPINS" on
+ * Português next to an otherwise Portuguese card title).
+ */
+const PROMOTIONS_ENGLISH_BASELINE = [
+  'CRYPTO WELCOME BONUS',
+  'TUESDAY POWER RELOAD',
+  'SUNDAY FREE SPINS',
+  'FOURTH DEPOSIT BONUS',
+  'Extra Free Spins on 50 €+',
+  'INSURANCE FEVER',
+  '77 FREE SPINS',
+];
 
 /**
  * NOT an English-fallback check — this string is wrong in EVERY locale
@@ -234,6 +301,15 @@ test.describe('ferraplay.com — translation coverage', () => {
             });
 
             const pageBaseline = PAGE_ENGLISH_BASELINES[p.name];
+            if (pageBaseline && locale.code === 'en') {
+              // Baseline health (non-failing): on the English page every baseline phrase
+              // must exist, otherwise it can never match on another locale and this
+              // page is silently unchecked — how FAQ/Contact Us went stale unnoticed.
+              // Rotating CMS banners legitimately drop out over time, so this is
+              // reported in Allure rather than failing the run.
+              const stale = await ferraplayPage.missingBaselinePhrases(pageBaseline);
+              allure.parameter('Stale baseline phrases (not on the English page)', stale.length ? stale.join(' | ') : 'none');
+            }
             const englishFallbackFlagged =
               pageBaseline && locale.code !== 'en' ? await ferraplayPage.scanForEnglishFallback(pageBaseline) : [];
             // Wrong-brand-name check — NOT locale-gated, confirmed
@@ -263,6 +339,9 @@ test.describe('ferraplay.com — translation coverage', () => {
             const ferraplayPage = new FerraPlayPage(page);
             await ferraplayPage.visitPage('/promotions', locale.path);
             const { found, opened, flagged } = await ferraplayPage.verifyAllPromotionTerms();
+            if (locale.code !== 'en') {
+              flagged.push(...(await ferraplayPage.scanForEnglishFallback(PROMOTIONS_ENGLISH_BASELINE)));
+            }
             if (found > 0 && opened === 0) {
               flagged.push(
                 `Found ${found} promotion "More info" button(s) but couldn't open any of them — the ` +
@@ -463,6 +542,70 @@ test.describe('ferraplay.com — translation coverage', () => {
               ],
               modalFlagged
             );
+          });
+        }
+      });
+
+      // BQA-461's first bullet: "the selected language persists while
+      // navigating between pages and after page refresh/login". Not covered
+      // by the Wildies suite either — added here first.
+      test.describe('Language persistence (navigation, refresh, login, logout)', () => {
+        test.skip(!hasCreds, 'No FerraPlay test accounts configured');
+
+        for (const locale of EXISTING_LOCALES) {
+          test(`Language persistence — ${locale.label}`, { tag: ['@localization', '@auth'] }, async ({ page }) => {
+            test.setTimeout(180_000);
+            allure.subSuite('Language persistence');
+            allure.severity('critical');
+            allure.description(
+              `Starts on ${locale.label}, then confirms <html lang="${locale.code}"> AND the URL's locale prefix ` +
+                'both survive a real in-app sidebar navigation, a page refresh, logging in, and logging out.'
+            );
+
+            const ferraplayPage = new FerraPlayPage(page);
+            const otherPrefixes = EXISTING_LOCALES.filter((l) => l.path && l.code !== locale.code).map((l) => l.path);
+
+            const expectStillLocalized = async (stage: string) => {
+              await test.step(`Still ${locale.label} ${stage}`, async () => {
+                expect(await ferraplayPage.getCurrentLocale(), `<html lang> ${stage}`).toBe(locale.code);
+                const pathname = new URL(page.url()).pathname;
+                if (locale.path) {
+                  expect(pathname, `URL locale prefix ${stage}`).toMatch(new RegExp(`^/${locale.path}(/|$)`));
+                } else {
+                  expect(
+                    otherPrefixes.some((p) => pathname === `/${p}` || pathname.startsWith(`/${p}/`)),
+                    `English URL must not gain another locale's prefix ${stage} (got ${pathname})`
+                  ).toBe(false);
+                }
+              });
+            };
+
+            // Screenshot in a finally so a failure at ANY stage still leaves visual
+            // evidence (the stage that fails is exactly the one worth seeing).
+            try {
+              await ferraplayPage.open(locale.path);
+              await expectStillLocalized('on first load');
+
+              await ferraplayPage.navigateViaSidebar('/promotions');
+              expect(new URL(page.url()).pathname, 'Sidebar link should land on Promotions').toMatch(/\/promotions$/);
+              await expectStillLocalized('after in-app navigation');
+
+              await page.reload();
+              await page.waitForLoadState('domcontentloaded');
+              await expectStillLocalized('after a page refresh');
+
+              await loginWithFallback(ferraplayPage, nextPooledAccount());
+              await expectStillLocalized('after logging in');
+
+              const logoutDialogFlagged = await ferraplayPage.logout();
+              await expectStillLocalized('after logging out');
+              expect(logoutDialogFlagged, 'Raw/untranslated keys in the log-out confirmation dialog').toEqual([]);
+
+            } finally {
+              await ferraplayPage
+                .captureScreenshot(`Language persistence — ${locale.label} (${viewportName})`, { fullPage: false })
+                .catch(() => {});
+            }
           });
         }
       });

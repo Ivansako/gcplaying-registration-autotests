@@ -300,6 +300,69 @@ export class FerraPlayPage {
   }
 
   /**
+   * Logs out via the avatar dropdown's final control — confirmed live
+   * 2026-10-07 it's a plain `<button>` (label is localized, e.g. "Esci"),
+   * a SIBLING of the `<ul>` holding the account links rather than one of
+   * its `<li>`s, so it's located structurally (last button next to that
+   * list), not by text. Then confirms the "are you sure?" dialog it opens.
+   * Success = the header's Login button is back. Returns any raw/untranslated
+   * keys found in that confirmation dialog while it was open.
+   */
+  async logout(): Promise<string[]> {
+    return step('Log out via the avatar dropdown', async () => {
+      // Confirmed live 2026-10-07: logging out opens a confirmation dialog
+      // ("Log out of FerraPlay? You may miss new offers." — CONFIRM first,
+      // "stay logged in" second). It's a screen the suite never saw before,
+      // so it's scanned for raw keys while open before confirming. It's
+      // addressed by its own attributes, NOT `[data-modal-overlay]`.first():
+      // a lingering post-login "Finances" overlay can sit beneath it and
+      // `.first()` would then pick the wrong one (the click is intercepted).
+      const dialog = this.page.locator('[data-modal="Info"][data-action-type="LogOut"]');
+
+      // Same bounded dismiss-and-retry as `openAccountMenu()`: the Finances
+      // popup can re-appear over the menu and swallow the logout click.
+      let dialogOpen = false;
+      for (let attempt = 0; attempt < 5 && !dialogOpen; attempt++) {
+        try {
+          await this.openAccountMenu();
+          const menuRoot = this.page.locator('ul:has(a[href="/account/info"])').first().locator('xpath=..');
+          await menuRoot.locator('button').last().click({ timeout: 5_000 });
+          await dialog.waitFor({ timeout: 5_000 });
+          dialogOpen = true;
+        } catch {
+          // Dismiss only AFTER a failed attempt — dismissing first would
+          // close the (mobile) account sheet we're about to use.
+          await this.dismissModalIfPresent();
+        }
+      }
+      await dialog.waitFor({ timeout: 10_000 });
+      const flagged = await this.scanForUntranslatedText();
+      await dialog.locator('button:not([data-modal-close-button])').first().click();
+
+      await expect(this.page.locator('button[data-header-button]').first()).toBeVisible({ timeout: 15_000 });
+      return flagged;
+    });
+  }
+
+  /**
+   * Navigates with a real in-app (client-side) sidebar link click — unlike
+   * `visitPage()`'s full `goto`, this is what a player does and is the
+   * path where a locale prefix could be silently dropped. `path` is the
+   * link's unprefixed href (`/promotions`); only direct sidebar links work
+   * (Casino's children sit inside a collapsed accordion).
+   */
+  async navigateViaSidebar(path: string): Promise<void> {
+    await step(`Navigate via the sidebar link ${path}`, async () => {
+      await this.dismissModalIfPresent();
+      await this.openSideMenu();
+      const previousUrl = this.page.url();
+      await this.page.locator(`aside a[href="${path}"]`).first().click();
+      await this.page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 15_000 });
+      await this.page.waitForLoadState('domcontentloaded');
+    });
+  }
+
+  /**
    * Opens the "Cassa"/Cashier modal (`data-modal="Finances"`) via the
    * header's balance/Deposit trigger — confirmed live 2026-09-10 this
    * is `header button[data-button-type="wrapper"]` (note: `data-button-
@@ -652,6 +715,18 @@ export class FerraPlayPage {
   }
 
   /**
+   * Baseline-health helper: which of `phrases` are NOT present in `scope`'s
+   * text? Run against the ENGLISH page, anything returned is a baseline
+   * phrase that no longer exists there — i.e. it can never match on another
+   * locale either, so that page is silently unchecked. This is exactly how
+   * the FAQ and Contact Us baselines went stale unnoticed (found 2026-10-07).
+   */
+  async missingBaselinePhrases(phrases: string[], scope: Locator = this.page.locator('body')): Promise<string[]> {
+    const bodyText = await scope.innerText();
+    return phrases.filter((phrase) => !bodyText.includes(phrase));
+  }
+
+  /**
    * Global, page-agnostic English phrases for the footer's English-
    * fallback check — confirmed live 2026-09-10 by diffing the English
    * footer against ALL 6 non-English, non-excluded locales (Italiano,
@@ -672,6 +747,13 @@ export class FerraPlayPage {
     'Privacy Policy',
     'AML-KYC Policy',
     'Responsible Gambling',
+    // Added 2026-10-07 after the footer grew an "About Us" column heading
+    // and legal/disclaimer lines — each verified absent from all 7
+    // non-English locales ("Support" was rejected: Italiano keeps it).
+    'About Us',
+    'Access to online real money gaming sites is prohibited',
+    'It is the responsibility of each individual player',
+    'All rights reserved',
   ];
 
   async verifyFooterTranslation(localeLabel: string, localeCode: string): Promise<void> {

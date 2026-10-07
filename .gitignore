@@ -20,3 +20,5 @@ test-results-ferraplay/
 *-auth.json
 *.log
 .registration-throttle.json
+scripts/ferraplay-locale-audit/capture.json
+scripts/ferraplay-locale-audit/analysis.json
