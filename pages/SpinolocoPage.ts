@@ -213,7 +213,14 @@ export class SpinolocoPage {
 
     const found = await this.page.evaluate((m) => {
       document.querySelectorAll(`[${m}]`).forEach((el) => el.removeAttribute(m));
-      const counterRe = /^\s*\d+\s*\/\s*\d+\s*$/;
+      // Requires at least one space on each side of the slash — confirmed
+      // live 2026-09-11 that the real counter is always spaced ("42 / 406"),
+      // while a spaceless `\d+\/\d+` also matches unrelated dd/mm date text
+      // that renders on the homepage (e.g. a promo countdown) — never an
+      // issue on the plain /slots and /live-games pages this loop used to
+      // run on exclusively, but it broke the homepage-based category-chip
+      // scrape added below the first time this loop ran there.
+      const counterRe = /^\s*\d+\s+\/\s+\d+\s*$/;
       const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
       let node: Node | null;
       while ((node = walker.nextNode())) {
@@ -233,7 +240,10 @@ export class SpinolocoPage {
       return false;
     }, mark);
     if (found) return this.page.locator(`[${mark}]`).first();
-    return this.page.getByText(/Wczytaj więcej|Visualizza tutto|Load more/i).first();
+    // "Carica di più" (Italian) confirmed live 2026-09-11 as the real
+    // button text — added alongside the original Polish/English guesses,
+    // which never actually matched this brand's Italian-resolving sessions.
+    return this.page.getByText(/Wczytaj więcej|Carica di più|Visualizza tutto|Load more/i).first();
   }
 
   /**
@@ -386,58 +396,200 @@ export class SpinolocoPage {
     return broken;
   }
 
+  private static readonly CATEGORY_CHIP_SELECTOR = '[class*="navbar-item-contained"]';
+
   /**
-   * Discovers every "<SECTION HEADING> / See all" link on the CURRENT
-   * page (confirmed live: "Zobacz wszystkie" in Polish, "Visualizza
-   * tutto" in Italian — same UI element, different label per locale, see
-   * this class's own comment on locale handling) and returns each
-   * section's label + the URL its link resolves to. Discovery-driven —
-   * scales to however many sections a page actually has, no hardcoded
-   * category list.
+   * Discovers every thematic category CHIP on the site's HOMEPAGE navbar
+   * (confirmed live 2026-09-11) — the PRIMARY category-discovery
+   * mechanism, added because an earlier "Zobacz wszystkie"/"See all"
+   * link-based mechanism (still kept as a supplement, see
+   * `getLinkBasedCategorySections()`) only ever surfaced 3 of the site's
+   * real categories, since that link only exists on a couple of pages;
+   * this row of `<button>` chips on the homepage ("Jackpots", "Egiziano",
+   * "Crash Games", "Da Tavolo Giochi", ...) is the real, site-wide
+   * category browsing UI: each is a CLIENT-SIDE filter with no
+   * `href`/navigation — clicking one re-filters the SAME page's
+   * `[data-card="container"]` grid in place and shows a real "N / Total"
+   * counter with its own "Load more" pagination underneath, confirmed to
+   * be the exact same mechanic `loadMoreUntilAll()` already drives
+   * elsewhere in this file (a click on "Jackpots" alone: 42 → 84 cards
+   * after one "Carica di più" click, counter read "42 / 406").
+   *
+   * No `data-*` attribute identifies these chips (checked live), so
+   * `CATEGORY_CHIP_SELECTOR` is the one locator in this class built on a
+   * raw CSS class name rather than `data-card`/`data-type` — the
+   * `navbar-item-contained` substring is deliberately the STABLE part of
+   * the class (same hashed-suffix pattern this class's own top comment
+   * already documents for other elements), just with no `data-*`
+   * alternative available to prefer instead.
+   *
+   * The same class also renders a few ICON-ONLY system tabs elsewhere
+   * (confirmed live on `/slots`/`/live-games`: all/favorites/recently-
+   * played — no visible text), filtered out here by requiring non-empty
+   * button text so only real thematic chips are returned. "Tutti i
+   * giochi" (All games) is a real umbrella-style label that DOES have
+   * text and so isn't filtered here, but it turned out live to be a small
+   * ~19-game curated teaser (no pagination at all), not the actual full
+   * catalog — far below `isUmbrellaCategory()`'s 85% ratio, so it's
+   * treated as a normal (tiny) category rather than needing a special
+   * case; any locale-specific label matching to explicitly exclude it
+   * would just reintroduce the same locale-fragility this class already
+   * avoids elsewhere.
+   *
+   * Scrapes each chip's full game list immediately (rather than returning
+   * a URL for the caller to visit later, the way the old link-based
+   * version did) since clicking a chip never navigates — there's no URL
+   * to hand back, only the CURRENT page's now-refiltered grid, which must
+   * be read before the next chip's click resets it.
+   */
+  async getCategorySections(): Promise<{
+    sections: Array<{ label: string; games: GameEntry[] }>;
+    failedLabels: string[];
+  }> {
+    return step('Discover and scrape every homepage category chip', async () => {
+      const locale = await this.getCurrentLocale();
+      const homeUrl = `/${locale}`;
+      await this.page.goto(homeUrl);
+      await this.page.waitForLoadState('domcontentloaded');
+      await this.settleAfterNavigation();
+
+      const labels = await this.page.evaluate((sel) => {
+        const seen = new Set<string>();
+        document.querySelectorAll(sel).forEach((el) => {
+          const text = el.textContent?.trim();
+          if (text) seen.add(text);
+        });
+        return [...seen];
+      }, SpinolocoPage.CATEGORY_CHIP_SELECTOR);
+
+      const sections: Array<{ label: string; games: GameEntry[] }> = [];
+      const failedLabels: string[] = [];
+      for (const label of labels) {
+        try {
+          const exactLabel = new RegExp(`^${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+          const chip = this.page.locator(SpinolocoPage.CATEGORY_CHIP_SELECTOR).filter({ hasText: exactLabel }).first();
+          await chip.click({ timeout: 5_000 });
+          // The client-side filter re-renders the grid in place — no
+          // navigation/loading-state to await, and a flat fixed delay
+          // sometimes samples mid-transition (confirmed live 2026-09-11:
+          // a stale card count left over from the PREVIOUS chip briefly
+          // coexists with the new category's cards before the swap
+          // finishes). Poll until the count holds steady across two
+          // checks in a row instead of trusting one fixed-delay snapshot.
+          for (let i = 0, last = -1; i < 8; i++) {
+            await this.page.waitForTimeout(400);
+            const count = await this.countGameCards().catch(() => 0);
+            if (count === last) break;
+            last = count;
+          }
+          // Confirmed live 2026-09-11: even after that settle, two of the
+          // 8 chips ("Casinò al Vivo", "Da Tavolo Giochi" — both small,
+          // no-pagination categories) still occasionally had `loadMoreUntilAll()`
+          // click SOMETHING that shrank the visible set (e.g. 65 → 6
+          // cards) rather than growing it — root cause not fully pinned
+          // down (this brand's homepage renders many other numeric "N / M"
+          // texts `findLoadMoreButton()`'s counter search can key off by
+          // mistake, unlike the plain /slots and /live-games pages that
+          // search was originally built for), but a genuine "Load more"
+          // can only ever ADD cards relative to what's already rendered —
+          // a smaller post-pagination result is provably a mis-click, not
+          // real data, so it's discarded in favor of the pre-pagination
+          // scrape rather than trusting whatever the DOM ends up showing.
+          // Deduped by `gameKey()` before the comparison below — `collectFullCatalog()`
+          // already dedupes internally, so comparing against a raw,
+          // un-deduped `preLoopGames` could let a page that happens to
+          // render one card twice out-count a smaller-but-correct deduped
+          // result, defeating the point of this safety net.
+          const preLoopGames = [...new Map((await this.collectGameCards()).map((g) => [gameKey(g), g])).values()];
+          const { games: postLoopGames } = await this.collectFullCatalog();
+          const games = postLoopGames.length >= preLoopGames.length ? postLoopGames : preLoopGames;
+          sections.push({ label, games });
+        } catch {
+          // one chip misbehaving shouldn't sink discovery of the rest
+          failedLabels.push(label);
+        } finally {
+          await this.page.goto(homeUrl);
+          await this.page.waitForLoadState('domcontentloaded');
+          await this.settleAfterNavigation();
+        }
+      }
+
+      // The homepage chips above are the site-WIDE category browsing UI,
+      // but confirmed live 2026-09-11 that `/live-games` ALSO still has
+      // its own "Visualizza tutto"/"See all" sections ("Lobbies", "Giochi
+      // Top") that have NO corresponding homepage chip — a real,
+      // separate discovery channel this class's own top comment already
+      // flagged as existing ("some may only exist as a game-card badge/
+      // tag with no dedicated section"). `/slots` was checked live and
+      // has none currently, but it's included here too in case that
+      // changes — cheap to check, and matches how this used to work
+      // before the chip mechanism was added, not a regression from it.
+      for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
+        await this[goTo]();
+        const { sections: linkSections, failedLabels: linkFailed } = await this.getLinkBasedCategorySections();
+        const knownLabels = new Set(sections.map((s) => s.label));
+        for (const s of linkSections) {
+          if (knownLabels.has(s.label)) continue; // already covered by a homepage chip with the same label
+          sections.push(s);
+          knownLabels.add(s.label);
+        }
+        failedLabels.push(...linkFailed);
+      }
+      return { sections, failedLabels };
+    });
+  }
+
+  /**
+   * The OLD category-discovery mechanism (pre-2026-09-11): finds every
+   * "<SECTION HEADING> / See all" link on the CURRENT page (confirmed
+   * live: "Zobacz wszystkie" in Polish, "Visualizza tutto" in Italian —
+   * same UI element, different label per locale) and scrapes each
+   * section's full game list. Kept as a SUPPLEMENT to the homepage-chip
+   * mechanism above (see that method's own comment) — `/live-games`
+   * still has a couple of sections only discoverable this way.
    *
    * Navigates by CLICKING each link and reading back `page.url()`, not by
    * reading a static `href` — confirmed live this brand's "See all"
-   * controls aren't guaranteed to be real `<a href>` elements (could be a
-   * JS-routed button, same as most of this SPA), so a static href read
-   * can silently be empty/wrong. Restores the original page after each,
-   * since clicking navigates away.
+   * controls aren't guaranteed to be real `<a href>` elements. Restores
+   * the original page after each, since clicking navigates away.
    */
-  async getCategorySections(): Promise<Array<{ label: string; url: string }>> {
-    return step('Discover category sections on this page', async () => {
-      const startUrl = this.page.url();
-      const seeAllLinks = this.page.getByText(/Zobacz wszystkie|Visualizza tutto|See all|View all/i);
-      const count = await seeAllLinks.count();
-      const sections: Array<{ label: string; url: string }> = [];
-      for (let i = 0; i < count; i++) {
-        const link = this.page.getByText(/Zobacz wszystkie|Visualizza tutto|See all|View all/i).nth(i);
-        // The section's own heading is the nearest preceding heading-like
-        // sibling in the same row — read via a small DOM walk rather than
-        // a fixed selector, since the row's exact tag isn't confirmed.
-        const label = await link
-          .evaluate((el) => {
-            let node: Element | null = el.parentElement;
-            for (let depth = 0; depth < 4 && node; depth++) {
-              const heading = node.querySelector('h1, h2, h3, [class*="title" i], [class*="heading" i]');
-              if (heading?.textContent?.trim()) return heading.textContent.trim();
-              node = node.parentElement;
-            }
-            return '';
-          })
-          .catch(() => '');
-        if (!label) continue;
-        try {
-          await link.click({ timeout: 5_000 });
-          await this.page.waitForURL((u) => u.toString() !== startUrl, { timeout: 8_000 }).catch(() => {});
-          sections.push({ label, url: this.page.url() });
-        } catch {
-          // one section's link misbehaving shouldn't sink discovery of the rest
-        } finally {
-          await this.page.goto(startUrl);
-          await this.page.waitForLoadState('domcontentloaded');
-        }
+  private async getLinkBasedCategorySections(): Promise<{
+    sections: Array<{ label: string; games: GameEntry[] }>;
+    failedLabels: string[];
+  }> {
+    const startUrl = this.page.url();
+    const seeAllLinks = this.page.getByText(/Zobacz wszystkie|Visualizza tutto|See all|View all/i);
+    const count = await seeAllLinks.count();
+    const sections: Array<{ label: string; games: GameEntry[] }> = [];
+    const failedLabels: string[] = [];
+    for (let i = 0; i < count; i++) {
+      const link = this.page.getByText(/Zobacz wszystkie|Visualizza tutto|See all|View all/i).nth(i);
+      const label = await link
+        .evaluate((el) => {
+          let node: Element | null = el.parentElement;
+          for (let depth = 0; depth < 4 && node; depth++) {
+            const heading = node.querySelector('h1, h2, h3, [class*="title" i], [class*="heading" i]');
+            if (heading?.textContent?.trim()) return heading.textContent.trim();
+            node = node.parentElement;
+          }
+          return '';
+        })
+        .catch(() => '');
+      if (!label) continue;
+      try {
+        await link.click({ timeout: 5_000 });
+        await this.page.waitForURL((u) => u.toString() !== startUrl, { timeout: 8_000 }).catch(() => {});
+        const { games } = await this.collectFullCatalog();
+        sections.push({ label, games });
+      } catch {
+        failedLabels.push(label);
+      } finally {
+        await this.page.goto(startUrl);
+        await this.page.waitForLoadState('domcontentloaded');
+        await this.settleAfterNavigation();
       }
-      return sections;
-    });
+    }
+    return { sections, failedLabels };
   }
 
   /**

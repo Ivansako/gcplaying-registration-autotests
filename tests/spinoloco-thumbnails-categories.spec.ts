@@ -111,9 +111,10 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
       'What this checks, in plain terms: every game must be filed under at least one real, browsable category ' +
         '(e.g. Sweet Bonanza → Video Slots) — not just findable via the raw "all Slots"/"all Live" list — so a ' +
         "player can actually discover it while browsing by genre, not only by scrolling the entire catalog. How: " +
-        'cross-references the full Slots + Live Casino catalog against every discoverable category listing ' +
-        '("Zobacz wszystkie" sections) and flags any game that doesn\'t show up in at least one thematic ' +
-        'category — the umbrella "all Slots"/"all Live" listings themselves don\'t count toward this.'
+        "cross-references the full Slots + Live Casino catalog against every category chip on the site's " +
+        'homepage (Jackpots, Egyptian, Crash Games, ...) and flags any game that doesn\'t show up in at least one ' +
+        "thematic category — a chip covering almost the entire catalog by itself (an \"all games\" umbrella) " +
+        "doesn't count toward this."
     );
 
     const spinoloco = new SpinolocoPage(page);
@@ -130,43 +131,27 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
     });
 
     const categorized = new Set<string>();
-    const sections: Array<{ label: string; url: string }> = [];
-    await test.step('Discover every browsable category ("Zobacz wszystkie" section) on the brand', async () => {
-      for (const goTo of ['goToSlots', 'goToLiveCasino'] as const) {
-        await spinoloco[goTo]();
-        sections.push(...(await spinoloco.getCategorySections()));
-      }
-    });
-    const seenLabels = new Set<string>();
-    const uniqueSections = sections.filter((s) => {
-      if (seenLabels.has(s.label) || !s.url) return false;
-      seenLabels.add(s.label);
-      return true;
+    let uniqueSections: Array<{ label: string; games: GameEntry[] }> = [];
+    let brokenSections: string[] = [];
+    await test.step("Discover every category chip on the brand's homepage and record which games each one lists", async () => {
+      const result = await spinoloco.getCategorySections();
+      uniqueSections = result.sections;
+      brokenSections = result.failedLabels;
     });
     allure.parameter('Category sections discovered', uniqueSections.map((s) => s.label).join(', ') || '(none)');
 
-    const brokenSections: string[] = [];
     const umbrellaSections: string[] = [];
-    await test.step('Open every category and record which games it lists', async () => {
-      for (const section of uniqueSections) {
-        try {
-          await page.goto(section.url);
-          await page.waitForLoadState('domcontentloaded');
-          const { games } = await spinoloco.collectFullCatalog();
-          // An "all Slots"/"all Live" umbrella listing doesn't count as a
-          // real thematic placement — see `isUmbrellaCategory()`'s own
-          // comment for why this is a coverage-ratio check, not a label
-          // match.
-          if (isUmbrellaCategory(games.length, masterCatalog.size)) {
-            umbrellaSections.push(section.label);
-            continue;
-          }
-          for (const g of games) categorized.add(gameKey(g));
-        } catch {
-          brokenSections.push(section.label);
-        }
+    for (const section of uniqueSections) {
+      // A chip covering almost the ENTIRE catalog by itself (an "all
+      // games" umbrella listing) doesn't count as a real thematic
+      // placement — see `isUmbrellaCategory()`'s own comment for why this
+      // is a coverage-ratio check, not a label match.
+      if (isUmbrellaCategory(section.games.length, masterCatalog.size)) {
+        umbrellaSections.push(section.label);
+        continue;
       }
-    });
+      for (const g of section.games) categorized.add(gameKey(g));
+    }
     allure.parameter('Umbrella (excluded) sections', umbrellaSections.join(', ') || '(none)');
 
     const uncategorized = [...masterCatalog.values()].filter((g) => !categorized.has(gameKey(g)));
@@ -177,17 +162,17 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
       recordIssue({
         where: 'Category discovery',
         severity: 'Needs triage',
-        rootCause: 'getCategorySections() found zero "Zobacz wszystkie" sections, so no category membership could be verified this run.',
-        whatToCheck: 'Open /pl/slots and /pl/live-games by hand and confirm those links are still present with the same markup this check expects.',
+        rootCause: 'getCategorySections() found zero homepage category chips, so no category membership could be verified this run.',
+        whatToCheck: 'Open the homepage by hand and confirm the category chip row (Jackpots, Egyptian, Crash Games, ...) is still present with the same markup this check expects.',
         explainsFailure: true,
       });
     }
     if (brokenSections.length > 0) {
       recordIssue({
-        where: 'Category listing pages',
+        where: 'Category chips',
         severity: 'Medium',
-        rootCause: `${brokenSections.length} category listing page(s) failed to load: ${brokenSections.join(', ')}.`,
-        whatToCheck: 'Open each listed category directly and confirm whether its page genuinely errors.',
+        rootCause: `${brokenSections.length} category chip(s) failed to filter/scrape: ${brokenSections.join(', ')}.`,
+        whatToCheck: 'Open the homepage directly, click each listed chip, and confirm whether it genuinely fails to filter the grid.',
         explainsFailure: true,
       });
     }
@@ -195,8 +180,8 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
       recordIssue({
         where: 'Uncategorized games',
         severity: 'Medium',
-        whatChecked: `${masterCatalog.size} games against ${uniqueSections.length} category listing(s): ${uniqueSections.map((s) => s.label).join(', ')}.`,
-        rootCause: `${uncategorized.length} game(s) don't appear in any of the discovered category listings: ${uncategorized
+        whatChecked: `${masterCatalog.size} games against ${uniqueSections.length} category chip(s): ${uniqueSections.map((s) => s.label).join(', ')}.`,
+        rootCause: `${uncategorized.length} game(s) don't appear under any of the discovered category chips: ${uncategorized
           .slice(0, 15)
           .map((g) => `${g.provider}/${g.name}`)
           .join(', ')}${uncategorized.length > 15 ? ', ...(see attached JSON)' : ''}.`,
@@ -206,8 +191,8 @@ test.describe('spinoloco7545.com — Thumbnails & Categories', () => {
     }
 
     expect(masterCatalog.size, 'The catalog scrape found zero games — likely a selector/pagination break, not a real empty catalog').toBeGreaterThan(0);
-    expect(uniqueSections.length, 'No category sections were discovered — see Description').toBeGreaterThan(0);
-    expect(brokenSections, 'Category listing page(s) failed to load — see Description').toEqual([]);
+    expect(uniqueSections.length, 'No category chips were discovered — see Description').toBeGreaterThan(0);
+    expect(brokenSections, 'Category chip(s) failed to filter/scrape — see Description').toEqual([]);
     expect(uncategorized, 'Game(s) with no thematic category — see Description and the attached JSON for the full list').toEqual([]);
   });
 });
