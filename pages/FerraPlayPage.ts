@@ -321,25 +321,39 @@ export class FerraPlayPage {
 
       // Same bounded dismiss-and-retry as `openAccountMenu()`: the Finances
       // popup can re-appear over the menu and swallow the logout click.
-      let dialogOpen = false;
-      for (let attempt = 0; attempt < 5 && !dialogOpen; attempt++) {
+      // The whole open -> scan -> confirm sequence is retried as one unit:
+      // confirmed live 2026-10-08 the dialog can also be closed by a late
+      // popup between opening and confirming (one Español mobile run).
+      let flagged: string[] = [];
+      let loggedOut = false;
+      for (let attempt = 0; attempt < 5 && !loggedOut; attempt++) {
         try {
           await this.openAccountMenu();
+          // Confirmed live 2026-10-08 (the real cause of 4/7 non-English mobile
+          // logout failures): the post-login 'Finances' popup can open ON TOP of
+          // the account sheet, swallowing the Logout click. A generic
+          // `dismissModalIfPresent()` can't fix that — it closes the FIRST
+          // `[data-modal-overlay]`, i.e. the account sheet underneath, not the
+          // popup above it — so close Finances by its own close button.
+          const finances = this.page.locator('[data-modal-overlay="true"][data-modal="Finances"]');
+          if (await finances.isVisible().catch(() => false)) {
+            await finances.locator('[data-modal-close-button]').first().click({ timeout: 3_000 }).catch(() => {});
+            await expect(finances).toBeHidden({ timeout: 3_000 }).catch(() => {});
+          }
           const menuRoot = this.page.locator('ul:has(a[href="/account/info"])').first().locator('xpath=..');
           await menuRoot.locator('button').last().click({ timeout: 5_000 });
           await dialog.waitFor({ timeout: 5_000 });
-          dialogOpen = true;
+          flagged = await this.scanForUntranslatedText();
+          await dialog.locator('button:not([data-modal-close-button])').first().click({ timeout: 5_000 });
+          loggedOut = true;
         } catch {
           // Dismiss only AFTER a failed attempt — dismissing first would
           // close the (mobile) account sheet we're about to use.
           await this.dismissModalIfPresent();
         }
       }
-      await dialog.waitFor({ timeout: 10_000 });
-      const flagged = await this.scanForUntranslatedText();
-      await dialog.locator('button:not([data-modal-close-button])').first().click();
 
-      await expect(this.page.locator('button[data-header-button]').first()).toBeVisible({ timeout: 15_000 });
+      await expect(this.page.locator('button[data-header-button]').first(), 'Log out should complete').toBeVisible({ timeout: 15_000 });
       return flagged;
     });
   }
@@ -511,6 +525,13 @@ export class FerraPlayPage {
         }
         await overlay.waitFor({ timeout: 10_000 });
       }
+      // Confirmed live 2026-10-08 (the real cause of most "Forgot Password" /
+      // Sign Up tab timeouts): the app syncs the open modal to the URL a beat
+      // AFTER it renders (`?modal=Login`, ~0.6s later). A tab/link click that
+      // lands BEFORE that sync gets reverted — the Forgot Password form was
+      // seen snapping back to Login ~0.6s after opening in 2 of 3 probes.
+      // Waiting for the URL to catch up first removes the race.
+      await this.page.waitForURL(/[?&]modal=/, { timeout: 5_000 }).catch(() => {});
       if (tab === 'register') {
         const registerTabButton = overlay.locator('[data-modal-body="true"] button').first();
         const emailInput = this.page.locator('input[name="email"]');
@@ -551,21 +572,28 @@ export class FerraPlayPage {
       const loginForm = this.page.locator('[data-modal-overlay="true"] form[type="Login"]');
       const forgotButton = loginForm.locator('button[type="button"]').first();
       const emailField = this.page.locator('[data-modal-overlay="true"] #email');
-      await forgotButton.click();
-      try {
-        await expect(emailField).toBeVisible({ timeout: 5_000 });
-      } catch {
-        // Same fix as `expectLoginFailure()`/`login()`/`openAuthModal()`:
-        // if the Login form is already gone, the first click DID register
-        // (the modal is mid-transition to the Forgot Password form) and
-        // clicking again hits a stale/replaced element instead of just
-        // waiting a bit longer for the real render.
-        const stillOnLoginForm = await loginForm.isVisible().catch(() => false);
-        if (stillOnLoginForm) {
-          await forgotButton.click();
+      const forgotModal = this.page.locator('[data-modal-overlay="true"][data-modal="ForgotPassword"]');
+
+      // Confirmed live 2026-10-08: even with the URL already synced, the form
+      // can still flip back to Login shortly after it appears, so "the email
+      // field was visible once" is NOT enough — require the Forgot Password
+      // modal to still be there after a short settle, and redo the click if
+      // it reverted. (This was the cause of 8/8 desktop Forgot Password
+      // failures in the 2026-10-08 full run, previously written off as flake.)
+      let stable = false;
+      for (let attempt = 0; attempt < 4 && !stable; attempt++) {
+        try {
+          if (await loginForm.isVisible().catch(() => false)) {
+            await forgotButton.click({ timeout: 5_000 });
+          }
+          await expect(emailField).toBeVisible({ timeout: 6_000 });
+          await this.page.waitForTimeout(1_500);
+          stable = (await forgotModal.isVisible().catch(() => false)) && (await emailField.isVisible().catch(() => false));
+        } catch {
+          // Loop again — re-check which form is showing and click only if it's still Login.
         }
-        await expect(emailField).toBeVisible({ timeout: 10_000 });
       }
+      await expect(emailField, 'The Forgot Password form should stay open').toBeVisible({ timeout: 5_000 });
     });
   }
 
