@@ -906,25 +906,34 @@ export class FerraPlayPage {
    * (84/84 across all locales/viewports) that "More info" here opens a
    * `[data-modal-overlay="true"]` panel, same as Wildies.
    */
-  async verifyAllPromotionTerms(): Promise<{ found: number; opened: number; flagged: string[] }> {
-    return step('Open every promotion\'s own Terms & Conditions', async () => {
-      const buttons = this.page.getByRole('button', { name: /more info/i });
+  async verifyAllPromotionTerms(englishBaseline: string[] = []): Promise<{ found: number; opened: number; flagged: string[] }> {
+    return step("Open every promotion's own Terms & Conditions", async () => {
+      // Found 2026-10-09: this used to be `getByRole('button', { name: /more info/i })` —
+      // an ENGLISH-ONLY label ("Dettagli", "Szczegóły", ... elsewhere), so in all 7
+      // non-English locales it found 0 promotions and silently "passed", i.e. no
+      // promotion's own T&C panel was ever opened outside English. Every button
+      // inside <main> on /promotions is a promotion's details opener, and each
+      // opens `[data-modal="Promotion"]`, so select by structure, not by label.
+      const buttons = this.page.locator('main button');
+      await buttons.first().waitFor({ timeout: 8_000 }).catch(() => {});
       const found = await buttons.count();
       let opened = 0;
       const flagged: string[] = [];
+      const panel = this.page.locator('[data-modal-overlay="true"][data-modal="Promotion"]');
 
       for (let i = 0; i < found; i++) {
         try {
-          await buttons.nth(i).click();
+          await buttons.nth(i).click({ timeout: 5_000 });
+          await panel.waitFor({ timeout: 5_000 });
           await this.page.waitForTimeout(500);
-          const overlay = this.page.locator('[data-modal-overlay="true"]').first();
-          await overlay.waitFor({ timeout: 5_000 });
           opened++;
           flagged.push(...(await this.scanForUntranslatedText()));
-          await overlay
+          if (englishBaseline.length) flagged.push(...(await this.scanForEnglishFallback(englishBaseline, panel)));
+          await panel
             .locator('[data-modal-close-button]')
+            .first()
             .click()
-            .then(() => expect(overlay).toBeHidden({ timeout: 5_000 }))
+            .then(() => expect(panel).toBeHidden({ timeout: 5_000 }))
             .catch(() => {});
         } catch {
           // Counted in `found` but not `opened` — surfaced by the call
@@ -949,9 +958,22 @@ export class FerraPlayPage {
   async verifyAllTournamentDetails(localeSegment = ''): Promise<{ found: number; opened: number; flagged: string[] }> {
     return step("Open and scan each tournament's own detail page", async () => {
       const listingUrl = localeSegment ? `/${localeSegment}/tournaments` : '/tournaments';
-      const buttons = this.page.getByRole('button', { name: /more info/i });
-      await buttons.first().waitFor({ timeout: 8_000 }).catch(() => {});
-      const found = await buttons.count();
+      // Same English-only-label hole as promotions (see verifyAllPromotionTerms): the
+      // card's details opener is the LAST button of each card, after the two tab buttons
+      // (Active/Finished) and each card's own "Opt in" — pick it without relying on its
+      // label. The English regex is kept as the first choice (it's exact when it works).
+      const cardOpeners = (): ReturnType<Page['locator']> => {
+        const byLabel = this.page.getByRole('button', { name: /more info/i });
+        return byLabel;
+      };
+      await this.page.locator('main button').nth(2).waitFor({ timeout: 8_000 }).catch(() => {});
+      const labelled = await cardOpeners().count();
+      const allMain = this.page.locator('main button');
+      const mainCount = await allMain.count();
+      // cards = (mainCount - 2 tabs) / 2 buttons per card (Opt in + details)
+      const structural = Math.max(0, Math.floor((mainCount - 2) / 2));
+      const found = labelled > 0 ? labelled : structural;
+      const openerAt = (n: number) => (labelled > 0 ? cardOpeners().nth(n) : allMain.nth(2 + 2 * n + 1));
 
       let opened = 0;
       const flagged: string[] = [];
@@ -959,10 +981,9 @@ export class FerraPlayPage {
         try {
           await this.page.goto(listingUrl);
           await this.page.waitForLoadState('domcontentloaded');
-          const targetButtons = this.page.getByRole('button', { name: /more info/i });
-          await targetButtons.first().waitFor({ timeout: 8_000 }).catch(() => {});
+          await this.page.locator('main button').nth(2).waitFor({ timeout: 8_000 }).catch(() => {});
           const previousUrl = this.page.url();
-          await targetButtons.nth(i).click({ timeout: 5_000 });
+          await openerAt(i).click({ timeout: 5_000 });
           await this.page.waitForURL((url) => url.toString() !== previousUrl, { timeout: 8_000 });
           opened++;
           for (const f of await this.scanForUntranslatedText()) {

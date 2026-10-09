@@ -179,6 +179,23 @@ const PROMOTIONS_ENGLISH_BASELINE = [
 ];
 
 /**
+ * Headings INSIDE each promotion's own details panel (the "Promotion" modal), found by the
+ * 2026-10-09 exploratory pass — the suite never saw these before because it could only open
+ * the panels in English (see `verifyAllPromotionTerms`). Each is absent from every locale that
+ * translates it (verified), so a hit is a genuine English fallback:
+ *  - "Monday Cashback"        left in English on Italiano, Português, Ελληνικά, Polski
+ *  - "Tuesday Power Reload"   left in English on Italiano, Português, Ελληνικά, Polski, Français
+ *  - "Insurance Fever"        left in English on Italiano, Magyar
+ */
+const PROMOTION_DETAIL_ENGLISH_BASELINE = ['Monday Cashback', 'Tuesday Power Reload', 'Insurance Fever'];
+
+/** Login modal label that is English on Italiano only (every other locale translates it). */
+const LOGIN_ENGLISH_BASELINE = ['Username / Email'];
+
+/** Sign Up modal's promo banner title: English on Italiano only (every other locale translates it). */
+const SIGNUP_ENGLISH_BASELINE = ['Welcome Pack'];
+
+/**
  * NOT an English-fallback check — this string is wrong in EVERY locale
  * including English itself (confirmed live 2026-09-10 on the
  * Responsible Gambling page: the body text says "Shelbyspin is
@@ -338,7 +355,9 @@ test.describe('ferraplay.com — translation coverage', () => {
 
             const ferraplayPage = new FerraPlayPage(page);
             await ferraplayPage.visitPage('/promotions', locale.path);
-            const { found, opened, flagged } = await ferraplayPage.verifyAllPromotionTerms();
+            const { found, opened, flagged } = await ferraplayPage.verifyAllPromotionTerms(
+              locale.code !== 'en' ? PROMOTION_DETAIL_ENGLISH_BASELINE : []
+            );
             if (locale.code !== 'en') {
               flagged.push(...(await ferraplayPage.scanForEnglishFallback(PROMOTIONS_ENGLISH_BASELINE)));
             }
@@ -406,12 +425,16 @@ test.describe('ferraplay.com — translation coverage', () => {
             const ferraplayPage = new FerraPlayPage(page);
             await ferraplayPage.open(locale.path);
             await ferraplayPage.openAuthModal('login');
+            const loginEnglish =
+              locale.code !== 'en'
+                ? await ferraplayPage.scanForEnglishFallback(LOGIN_ENGLISH_BASELINE, page.locator('[data-modal-overlay="true"]').first())
+                : [];
             await ferraplayPage.captureScreenshot(`Login popup — ${locale.label} (${viewportName})`, { fullPage: false });
-            await ferraplayPage.verifyTranslation(`Login popup (${locale.label}, ${viewportName})`, [
-              'Login form fields and labels',
-              'Remember me / Forgot password',
-              'Submit and social-login buttons',
-            ]);
+            await ferraplayPage.verifyTranslation(
+              `Login popup (${locale.label}, ${viewportName})`,
+              ['Login form fields and labels', 'Remember me / Forgot password', 'Submit and social-login buttons'],
+              loginEnglish
+            );
           });
 
           test(`Sign Up popup — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
@@ -421,13 +444,16 @@ test.describe('ferraplay.com — translation coverage', () => {
             const ferraplayPage = new FerraPlayPage(page);
             await ferraplayPage.open(locale.path);
             await ferraplayPage.openAuthModal('register');
+            const signupEnglish =
+              locale.code !== 'en'
+                ? await ferraplayPage.scanForEnglishFallback(SIGNUP_ENGLISH_BASELINE, page.locator('[data-modal-overlay="true"]').first())
+                : [];
             await ferraplayPage.captureScreenshot(`Sign Up popup — ${locale.label} (${viewportName})`, { fullPage: false });
-            await ferraplayPage.verifyTranslation(`Sign Up popup (${locale.label}, ${viewportName})`, [
-              'Sign Up form fields and labels',
-              'Password strength hints',
-              'Consent checkboxes',
-              'Submit and social-signup buttons',
-            ]);
+            await ferraplayPage.verifyTranslation(
+              `Sign Up popup (${locale.label}, ${viewportName})`,
+              ['Sign Up form fields and labels', 'Password strength hints', 'Consent checkboxes', 'Submit and social-signup buttons'],
+              signupEnglish
+            );
           });
 
           test(`Forgot Password — ${locale.label}`, { tag: ['@localization', '@translation'] }, async ({ page }) => {
