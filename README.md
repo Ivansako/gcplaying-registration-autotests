@@ -1,261 +1,247 @@
 # Automation Client QA
 
-Playwright + TypeScript end-to-end test automation, with Allure reporting.
-This repository is **not** a single test suite for one site — it covers
-**three separate brands**, each with its own scope, page objects, and CI
-entry point:
+Playwright + TypeScript end-to-end test automation with Allure reporting,
+maintained by the Aloplay QA team. One repository, **six brands** — each
+with its own Playwright config, page object(s), test specs and
+`allure-results-*` / `allure-report-*` directories, so results never mix.
 
-| Brand | Site | What's covered |
-|---|---|---|
-| **GCPlaying** | gcplaying0175.com | Registration, login, full authenticated account area, cashier, content/legal/provider pages, casino UI extras |
-| **Wildies** | beta.wildies.com | Full i18n / translation coverage across 10 locales |
-| **Spinoloco** | spinoloco7545.com | Provider Launch QA — thumbnails, categories, game launch, real-money min-bet spins |
+| Brand | Site | Suite type | Config | Status |
+|---|---|---|---|---|
+| **GCPlaying** | gcplaying0175.com | Full regression: registration, login, account area, cashier, content/legal/provider pages | `playwright.config.ts` (default) | Stable |
+| **Wildies** | beta.wildies.com | i18n / translation coverage, 9 locales, desktop + mobile | `playwright.wildies.config.ts` | Stable (local runs) |
+| **FerraPlay** | ferraplay.com | i18n / translation coverage, 8 locales, desktop + mobile (BQA-461) | `playwright.ferraplay.config.ts` | Active development |
+| **Spinoloco** | spinoloco7545.com | Provider Launch QA: thumbnails, launch, real min-bet, categories | `playwright.spinoloco.config.ts` | Stable |
+| **ShelbySpin** | shelbyspin3322.com | Provider language audit (Dutch, `nl`) — discovery report, not a gate | `playwright.shelbyspin.config.ts` | New (2026-10-08) |
+| **Spinoloco345** | spinoloco345.com | Provider language audit (Portuguese, `pt`) — discovery report, not a gate | `playwright.spinoloco345.config.ts` | New (2026-10-08) |
 
-Each brand has its own Playwright config, its own `allure-results-*` /
-`allure-report-*` output directory, and its own case in the shared GitHub
-Actions workflow — they never mix results with each other.
+## Repositories
+
+- **GitHub (primary):** https://github.com/Ivansako/gcplaying-registration-autotests
+  — all development happens here; GitHub Actions and the hosted run
+  button live here.
+- **Bitbucket (mirror):** https://bitbucket.org/aloplay/automation-client-qa
+  — company copy in the Aloplay workspace (QA project). Not synced
+  automatically: after pushing to GitHub, also push to Bitbucket:
+
+  ```bash
+  git remote add bitbucket https://bitbucket.org/aloplay/automation-client-qa.git   # once
+  git push bitbucket master
+  ```
 
 ## Setup
 
 ```bash
 npm install
 npx playwright install --with-deps chromium firefox
+cp .env.example .env   # then fill in the real test-account credentials
 ```
+
+All credentials (test accounts, Cloudflare Access tokens) come from
+environment variables — locally from `.env` (gitignored), in CI from
+GitHub Secrets. **Never commit real credentials.**
 
 ## Repository structure
 
 ```
-playwright.config.ts             — GCPlaying config (default)
-playwright.wildies.config.ts     — Wildies config (its own account pool / locales)
-playwright.spinoloco.config.ts   — Spinoloco config (its own accounts / sharding)
+playwright.config.ts                — GCPlaying (default config)
+playwright.wildies.config.ts        — Wildies
+playwright.ferraplay.config.ts      — FerraPlay
+playwright.spinoloco.config.ts      — Spinoloco
+playwright.shelbyspin.config.ts     — ShelbySpin
+playwright.spinoloco345.config.ts   — Spinoloco345
 
-pages/
-  RegistrationPage.ts            — GCPlaying signup/login modal
-  AccountPage.ts                 — GCPlaying authenticated account area (cashier, profile, favorites, verification)
-  BrandContentPage.ts            — GCPlaying public content/legal/provider pages, search, side menu, language switch
-  WildiesPage.ts                 — Wildies-wide page object (navigation, locale handling, account menu, screenshots, sportsbook)
-  SpinolocoPage.ts               — Spinoloco catalog, pagination, game launch, categories
+pages/                              — page objects, one or more per brand
+  RegistrationPage.ts, AccountPage.ts, BrandContentPage.ts   (GCPlaying)
+  WildiesPage.ts, FerraPlayPage.ts, SpinolocoPage.ts,
+  ShelbySpinPage.ts, Spinoloco345Page.ts
 
-tests/
-  registration.spec.ts                    — GCPlaying: sign up form validation + real registration
-  brand-gcplaying.spec.ts                 — GCPlaying: full brand test (register + log back in)
-  authenticated-user.spec.ts              — GCPlaying: log in and inspect the authenticated session
-  authenticated-account.spec.ts           — GCPlaying: header, nav, account menu, favorites, real spin
-  authenticated-profile.spec.ts           — GCPlaying: cashier, password, personal details, address, verification
-  brand-content-pages.spec.ts             — GCPlaying: public content pages
-  brand-legal-pages.spec.ts               — GCPlaying: footer / legal pages
-  brand-providers.spec.ts                 — GCPlaying: provider pages
-  brand-casino-ui.spec.ts                 — GCPlaying: search, side menu, language switcher, footer payment logos
-  forgot-password.spec.ts                 — GCPlaying: forgot-password flow
-  game-providers.spec.ts                  — GCPlaying: game provider connectivity check
-  wildies-localizations.spec.ts           — Wildies: locale switching (URL + sidebar dropdown)
-  wildies-translation-coverage.spec.ts    — Wildies: full translation coverage, every page × every locale
-  spinoloco-thumbnails-categories.spec.ts — Spinoloco: thumbnail + category checks (full catalog)
-  spinoloco-game-launch.spec.ts           — Spinoloco: every game opens with no tech error (sharded)
-  spinoloco-real-bet.spec.ts              — Spinoloco: one real minimum-bet spin per provider
-
-utils/                             — shared helpers (test data, locale lists, account pools, catalog scraping, issue tracking)
-scripts/                           — report post-processing, result cleanup, local runner UI
-hosted/server.js                   — public "Run tests" button (see below)
+tests/                              — specs, prefixed by brand (see each brand below)
+utils/                              — test data, locale lists, account pools,
+                                      catalog scraping, issue analysis, language heuristic
+scripts/                            — report post-processing, result cleanup,
+                                      language reports, diagnostics, local runner UI
+hosted/server.js                    — public "Run tests" button (Render)
+.github/workflows/                  — GitHub Actions (main suite + diagnostics)
+bitbucket-pipelines.yml             — Bitbucket diagnostic probe (see CI section)
 ```
 
 ## Brand 1 — GCPlaying (gcplaying0175.com)
 
-### How the signup form works (verified live 2026-08-24)
+| Spec | What it covers |
+|---|---|
+| `registration.spec.ts` | Sign-up form validation (email, phone, password rules) + one real registration and one duplicate-email attempt |
+| `brand-gcplaying.spec.ts` | Full brand smoke: register, then log back in |
+| `authenticated-user.spec.ts` | Log in with an existing test account |
+| `authenticated-account.spec.ts` | Header, navigation, account menu, Favorites, games reaching playable state, one real spin |
+| `authenticated-profile.spec.ts` | Cashier, password change, Personal Details, address, verification, Refer a Friend |
+| `brand-content-pages.spec.ts` / `brand-legal-pages.spec.ts` / `brand-providers.spec.ts` | Public content, footer/legal and provider pages |
+| `brand-casino-ui.spec.ts` | Game search, side menu, language switcher (incl. RTL), footer payment logos |
+| `forgot-password.spec.ts` | Forgot-password flow |
+| `game-providers.spec.ts` | Game provider connectivity |
 
-Registration opens as a modal (`data-testid="signup-popup"`) via the
-**Register** button in the header (only visible for an anonymous session —
-a logged-in browser shows balance + "Log out" instead).
+How the signup form works (verified live 2026-08-24): a modal
+(`data-testid="signup-popup"`) opened by **Register** in the header.
+Fields: Currency, Country, phone code, Phone, Email, Password. No
+password confirmation, no Terms checkbox, no CAPTCHA. The **Sign up**
+button stays `disabled` until every field is valid; the password is
+checked live against a 5-item checklist.
 
-Form fields: Currency (USD/EUR, default USD), Country (default United Arab
-Emirates), Code — phone country code (default +971), Phone, Email,
-Password. **There is no password-confirmation field and no Terms
-checkbox** — agreement to Terms & Conditions and 18+ is implied by linked
-text under the submit button. No CAPTCHA (reCAPTCHA/hCaptcha/Turnstile)
-was found in the form markup.
+**Open items** (marked `TODO` in the code):
 
-Validation is fully client-side: the **Sign up** button has a native
-`disabled` attribute that only clears once every field is valid. Password
-strength is checked live against a 5-item checklist ("Between 8-30
-characters", "At least one number", "No spaces", "At least one lowercase",
-"At least one capital") — each item is highlighted ✓/✗ as you type via
-`WizPasswordHints_true__*` / `WizPasswordHints_false__*` CSS classes.
+1. `RegistrationPage.expectSuccess()` checks "modal closes + Log out or
+   Deposit appears" — not yet confirmed against the real post-signup UI.
+2. The `@duplicate` test only checks that the modal stays open, not the
+   exact error text.
 
-### Scope
+⚠️ `@positive` and `@duplicate` create real accounts on production.
+Exclude them with `--grep-invert "@positive|@duplicate"`.
 
-- Registration form validation (empty/invalid email, phone, password —
-  all negative paths) plus one real successful registration and one real
-  duplicate-email attempt (`registration.spec.ts`).
-- Full brand smoke: register, then log back in (`brand-gcplaying.spec.ts`).
-- Authenticated account area: header (balance/deposit/notifications/menu),
-  main navigation, account menu sections, Favorites toggle, 5 games
-  reaching a playable state, one real spin that decreases balance
-  (`authenticated-account.spec.ts`).
-- Cashier, password change, Personal Details (edit/cancel, DOB picker,
-  communication language, a confirmed real bug on save-with-no-changes),
-  address update, verification page, Refer a Friend
-  (`authenticated-profile.spec.ts`).
-- Public content pages, legal/footer pages, provider pages, forgot
-  password flow (`brand-content-pages.spec.ts`,
-  `brand-legal-pages.spec.ts`, `brand-providers.spec.ts`,
-  `forgot-password.spec.ts`).
-- Casino UI extras: game search, side menu nav items, language switcher
-  (with RTL check), footer payment method logos
-  (`brand-casino-ui.spec.ts`).
-- Game provider connectivity — 36 of 51 providers checked as of
-  2026-08-25 (`game-providers.spec.ts`).
-
-### Known limitations
-
-Two things were verified logically rather than live, to avoid creating
-extra accounts on production during form recon — re-check on first real
-run (marked with `TODO` comments in the code):
-
-1. **Success screen** (`RegistrationPage.expectSuccess`) — currently
-   checked as modal closing + "Log out" or "Deposit" appearing. If a real
-   registration shows a welcome/bonus modal instead, update this method.
-2. **Duplicate-email message** — the `@duplicate` test currently only
-   checks that the modal does NOT close (i.e. no success), not the exact
-   error text. If the server shows something like "Email already exists",
-   add an exact text assertion in `tests/registration.spec.ts`.
+```bash
+npm test                                   # chromium, firefox, mobile-chrome
+npx playwright test --project=chromium
+BASE_URL=https://staging.example.com/ npm test   # override target
+npm run report
+```
 
 ## Brand 2 — Wildies (beta.wildies.com)
 
-612-test i18n/translation coverage suite across **10 live locales**
-(English, Nederlands, Français, Italiano, Português, Ελληνικά, Deutsch,
-Suomi, Español, Svenska). Covers every anonymous page, the Sportsbook
-Lobby (odds widget iframe), Promotions, Tournaments, Login/Sign Up,
-Forgot Password, duplicate-email registration, the 404/error boundary,
-the account avatar dropdown, every authenticated account page, Cashier
-(UI-only), Game History, Sportsbook My Bets, and Gamification — desktop
-and mobile viewports.
+Translation-coverage suite across **9 locales** (English, Nederlands,
+Français, Italiano, Português, Ελληνικά, Suomi, Español, Svenska —
+Deutsch removed 2026-10-06). Covers every anonymous page, Sportsbook
+Lobby, Promotions, Tournaments, Login/Sign Up, Forgot Password,
+duplicate-email registration, 404, account menu, every authenticated
+page, Cashier (UI only), Game History, Sportsbook My Bets and
+Gamification, on desktop and mobile. Red-or-green only.
 
-Real money is spent **once per full run**: one minimum-bet slot spin +
-one minimum-stake sportsbook bet on a dedicated seed account. A pool of
-other funded accounts round-robins through every other authenticated
-check.
+Real money: **one** minimum-bet slot spin + **one** minimum-stake
+sportsbook bet per full run, on a dedicated seed account; every other
+authenticated check rotates through an account pool.
 
-Confirmed baseline (2026-09-08 full run, 2.9h): 576 passed / 36 failed —
-remaining failures are a handful of known, already-triaged findings (an
-untranslated `notification.loginError` i18n key on 5 locales, a
-mobile-only Sportsbook widget/bottom-nav overlap that's a confirmed
-real site bug and explicitly out of this suite's scope, and a couple of
-Tournament "More info" button failures), not test flakiness.
-
-Run locally:
+Last full baseline (2026-09-08, 10 locales at the time): 576 passed /
+36 failed — the failures are known, triaged site bugs (untranslated
+`notification.loginError` key, mobile Sportsbook/bottom-nav overlap,
+Tournament "More info" buttons), not flakiness.
 
 ```bash
-npm run test:wildies:full   # clean previous results, then run
-npm run report:wildies      # generate + open the Allure report
+npm run test:wildies:full   # clean old results, then run
+npm run report:wildies
 ```
 
-## Brand 3 — Spinoloco (spinoloco7545.com)
+## Brand 3 — FerraPlay (ferraplay.com)
 
-Provider Launch QA suite, 4 checks:
+Port of the Wildies i18n architecture (same underlying platform),
+scoped by **BQA-461**. **8 locales**: English, Italiano, Português,
+Ελληνικά, Español, Polski, Magyar, Français (Nederlands excluded on
+request).
 
-1. **Thumbnails** — every Casino/Live Casino game has a real image.
-2. **Game launch** — every game opens with no tech error. The catalog is
-   huge (4000+ Slots alone), so this check is sharded by calendar day
-   rather than covering everything in one run.
-3. **Real minimum-bet spin** — one per provider (67 providers total),
-   using manually-investigated per-provider click coordinates (each
-   provider's game engine renders in an opaque canvas inside a
-   cross-origin iframe, so there's no generic "click here" that works
-   across engines).
-4. **Categories** — every game is filed under at least one thematic
-   category.
+- `ferraplay-localizations.spec.ts` — locale switching mechanics (URL,
+  dropdown, `<html lang>`, language persistence).
+- `ferraplay-translation-coverage.spec.ts` — anonymous + authenticated
+  pages, promotion/tournament detail pages in every locale, Gamification,
+  per-page English-fallback baselines.
+- One real seed spin per run; 3 funded test accounts in a pool.
+- Out of scope: Sportsbook (the brand will not ship one).
+- Findings so far: "TOP GAMES" header untranslated on IT/PT; the
+  Responsible Gambling page says "Shelbyspin" instead of "FerraPlay" in
+  every locale.
+- Tooling: `scripts/ferraplay-locale-audit/` (capture + analyze),
+  `scripts/ferraplay-game-scout.js`, `scripts/ferraplay-secrets-check.js`.
 
-This suite is red-or-green only (no orange "broken" findings) — a bad
-thumbnail/launch/category IS the exact thing each check exists to catch,
-so it fails the test directly rather than being logged as an incidental
-finding.
+```bash
+npm run test:ferraplay:full
+npm run report:ferraplay
+```
 
-Locale is 100% server-enforced by geo-IP on this site, so every selector
-is written locale-independently (no hardcoded English/Polish/Italian
-text).
+## Brand 4 — Spinoloco (spinoloco7545.com)
 
-Run locally:
+Provider Launch QA, 4 checks:
+
+1. **Thumbnails** — every Casino / Live Casino game has a real image.
+2. **Game launch** — every game opens with no tech error; sampled per
+   provider (5 games each).
+3. **Real minimum-bet spin** — one per provider (~32 providers), using
+   per-provider click coordinates (`utils/spinolocoBetCoordinates.ts`)
+   since game engines render in cross-origin canvases.
+4. **Categories** — every game sits in at least one thematic category.
+
+Red-or-green only. Locale is geo-IP enforced, so selectors are
+locale-independent.
 
 ```bash
 npm run test:spinoloco
 npm run report:spinoloco
 ```
 
-## Running tests (GCPlaying, default config)
+## Brands 5 & 6 — ShelbySpin and Spinoloco345 (provider language audits)
+
+Discovery suites, **not** pass/fail gates: open one representative game
+per provider in the target language and record which providers still
+launch in English, to hand that list to the providers.
+
+| | ShelbySpin | Spinoloco345 |
+|---|---|---|
+| Target language | Dutch (`nl`) | Portuguese (`pt`) |
+| How the locale is set | Site's own sidebar language switcher — **no VPN** (an NL IP triggers a regulatory game block) | Geo-IP only, no switcher; the run fails fast if the network doesn't resolve to `pt` |
+| Spec | `shelbyspin-provider-localization.spec.ts` | `spinoloco345-provider-localization.spec.ts` |
+| Output | `shelbyspin-dutch-localization-report.json` + `shelbyspin-screenshots/` | `spinoloco345-pt-localization-report.json` + `spinoloco345-screenshots/` |
+| Credentials | `SHELBYSPIN_TEST_USER_EMAIL` / `_PASSWORD` | `SPINOLOCO345_TEST_USER_EMAIL` / `_PASSWORD` |
+
+Language is detected from the game frame's URL parameters
+(`utils/gameLanguageHeuristic.ts`); a screenshot is always attached for
+manual review when no parameter is found.
 
 ```bash
-npm test                 # all browsers (chromium, firefox, mobile-chrome)
-npx playwright test --project=chromium
-npm run test:headed      # with a visible browser
-npm run test:debug       # step-by-step debugging
-npx playwright test -g "Successful registration"   # a specific test
+npm run test:shelbyspin:full && npm run report:shelbyspin:language
+npm run test:spinoloco345:full && npm run report:spinoloco345:language
 ```
 
-Override the target site (e.g. for staging):
-
-```bash
-BASE_URL=https://staging.gcplaying0175.com/ npm test
-```
-
-⚠️ The `@positive` and `@duplicate` tests perform a real registration
-form submission. Run them against a test environment/test emails
-(mailinator.com), or exclude them on production:
-
-```bash
-npx playwright test --grep-invert "@positive|@duplicate"
-```
+The `report:*:language` scripts turn the JSON into a Markdown table
+ready to send to providers.
 
 ## Allure reports
 
-Each brand writes to its own results directory
-(`allure-results` / `allure-results-wildies` / `allure-results-spinoloco`)
-via `allure-playwright`.
+Every brand has `npm run report:<brand>` (generate + open). GCPlaying
+uses the plain `npm run report`. Post-processing scripts
+(`promote-broken-steps.js`, `wildies-no-broken.js`) map findings to
+Allure's red/orange statuses.
 
-```bash
-npm run report              # GCPlaying
-npm run report:wildies      # Wildies
-npm run report:spinoloco    # Spinoloco
-```
+## CI
 
-## Running via GitHub Actions
+### GitHub Actions
 
-Repository: https://bitbucket.org/aloplay/automation-client-qa (mirrored
-from https://github.com/Ivansako/gcplaying-registration-autotests, which
-also carries the GitHub Actions workflow).
+Workflow **"Run autotests"** (`.github/workflows/tests.yml`), manual
+`workflow_dispatch` with inputs:
 
-1. Open the **Actions** tab → workflow **"Run autotests"**.
-2. Click **Run workflow** and choose:
-   - `spec` — which suite to run: `registration` / `brand-gcplaying` /
-     `authenticated-account` / `game-providers` / `wildies-i18n` /
-     `spinoloco-provider-launch` / `all`;
-   - `include_form_submitting` — whether to include `@positive`/
-     `@duplicate` (creates a real account on the target site — off by
-     default);
-   - `base_url` — optional override (e.g. a staging URL).
-3. Once the run finishes, open the run itself → **Artifacts** section →
-   download `allure-report`, unzip it, and open `index.html` locally.
+- `spec`: `registration` / `brand-gcplaying` / `authenticated-account` /
+  `game-providers` / `wildies-i18n` / `ferraplay-i18n` /
+  `spinoloco-provider-launch` / `all`
+- `include_form_submitting` — include `@positive` / `@duplicate` (off by default)
+- `base_url` — optional override
 
-⚠️ GitHub Pages isn't available for private repos on the free tier, so
-the report is published as a downloadable artifact rather than a
-permanent link. On GitHub Pro/Team/Enterprise this can switch to Pages
-for one stable URL for the whole team.
+The Allure report is uploaded as a run artifact. ShelbySpin and
+Spinoloco345 are not wired into CI yet (local runs only).
 
-To give teammates access to the repository, add them under
-**Settings → Collaborators and teams**.
+Diagnostic workflows: `cf-access-probe.yml`,
+`wildies-header-diagnostic.yml`, `ferraplay-secrets-check.yml`.
 
-## Hosted "Run tests" button
+**Known issue:** GitHub-hosted runners' IPs are geo-blocked by Wildies
+(and likely FerraPlay), so those suites currently run locally.
 
-`hosted/server.js` is a small Node HTTP server deployed on Render
-(`gcplaying-registration-autotests.onrender.com`). It dispatches the same
-`.github/workflows/tests.yml` via `workflow_dispatch`, polls run status
-with a progress bar + ETA, and serves the resulting Allure report at
-`/report` — no need to touch the Actions tab or download artifacts
-manually. Auto-deploys on every push to `master`.
+### Bitbucket Pipelines
 
-Categories in the dropdown: Development, Product, Localization, Payments,
-Provider Launch, Brand Launch, Legal Check, All suites.
+`bitbucket-pipelines.yml` contains only a reachability probe: it
+screenshots beta.wildies.com from a Bitbucket runner to check whether
+Bitbucket's IP range avoids the geo-block. If it does, Bitbucket could
+become the CI path for Wildies/FerraPlay. Requires repository variables
+`CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`.
 
-Note: the underlying GitHub token only has `Actions: Read and write`
-scope — it can dispatch/poll/cancel runs but cannot read or write
-repository Secrets. Adding/checking GitHub Secrets always has to be done
-manually via the repo's **Settings → Secrets** UI.
+### Hosted "Run tests" button
+
+`hosted/server.js` — a small Node server on Render
+(`gcplaying-registration-autotests.onrender.com`). Dispatches the same
+GitHub workflow, shows progress with ETA, and serves the Allure report
+at `/report`. Auto-deploys on every push to `master`. Its GitHub token
+has `Actions: Read and write` only — Secrets must be managed manually in
+the repo settings.
+
+Locally, `npm run ui` starts an equivalent runner UI.
